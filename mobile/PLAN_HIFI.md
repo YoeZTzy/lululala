@@ -36,6 +36,8 @@ Fase h dikerjakan sebelum layar yang bergantung padanya: Detail Titik Rawan butu
 | h4 | `days` menerima array `["sen","sel",…]` (teks lama tetap diterima dan disimpan apa adanya); `GET /api/commutes?include_risk=true` menyertakan `risk {risk_level, risk_score, causes}` per rute | Beranda, Tambah Rute | Tanpa query, respons `/api/commutes` sama seperti sekarang |
 | h5 | `/api/summary` menambah `reporters_today` | Beranda (kartu "N warga melapor") | Hanya menambah field |
 
+Tambahan saat implementasi: **h6** kolom opsional `origin_label`/`dest_label` pada rute rutin. Dibutuhkan Kartu Rute & Detail Rute untuk menampilkan nama asal/tujuan.
+
 Endpoint mitra (`/api/route-risk`, `/api/hazards?bbox`, `/api/cities/{kota}/summary`) tidak diubah selain penambahan field atau nilai yang lebih akurat dari h2.
 
 ## Pemetaan data → desain
