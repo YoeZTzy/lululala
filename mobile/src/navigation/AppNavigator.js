@@ -10,6 +10,7 @@ import LoginScreen from '../screens/LoginScreen';
 import DaftarScreen from '../screens/DaftarScreen';
 import BerandaScreen from '../screens/BerandaScreen';
 import TambahRuteScreen from '../screens/TambahRuteScreen';
+import PilihLokasiScreen from '../screens/PilihLokasiScreen';
 import DetailRuteScreen from '../screens/DetailRuteScreen';
 import PetaScreen from '../screens/PetaScreen';
 import DetailTitikRawanScreen from '../screens/DetailTitikRawanScreen';
@@ -26,7 +27,7 @@ const PetaNav = createNativeStackNavigator();
 const tanpaHeader = { headerShown: false, contentStyle: { backgroundColor: colors.permukaan.latar } };
 
 // Layar detail di dalam tab: tab bar disembunyikan.
-const LAYAR_TANPA_TAB = ['TambahRute', 'DetailRute', 'DetailTitikRawan'];
+const LAYAR_TANPA_TAB = ['TambahRute', 'PilihLokasi', 'DetailRute', 'DetailTitikRawan'];
 
 function opsiTab(route) {
   const nama = getFocusedRouteNameFromRoute(route);
@@ -38,6 +39,7 @@ function BerandaStack() {
     <BerandaNav.Navigator screenOptions={tanpaHeader}>
       <BerandaNav.Screen name="Beranda" component={BerandaScreen} />
       <BerandaNav.Screen name="TambahRute" component={TambahRuteScreen} />
+      <BerandaNav.Screen name="PilihLokasi" component={PilihLokasiScreen} />
       <BerandaNav.Screen name="DetailRute" component={DetailRuteScreen} />
       <BerandaNav.Screen name="DetailTitikRawan" component={DetailTitikRawanScreen} />
     </BerandaNav.Navigator>

@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Svg, { Line } from 'react-native-svg';
 import { SvgXml } from 'react-native-svg';
 import { Bell, MapPin, Navigation, Route } from 'lucide-react-native';
@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ruteAsal, ruteTujuan } from '../assets/svg';
 import { HeaderRingkas, Input, Sakelar, Tombol } from '../components';
 import BilahStatus from '../components/BilahStatus';
-import PemilihLokasi from '../components/PemilihLokasi';
 import PesanGalat from '../components/PesanGalat';
 import { useAuth } from '../context/AuthContext';
 import ApiService from '../services/ApiService';
@@ -33,7 +32,7 @@ const FIELD_FORM = {
   dest_label: 'rute',
 };
 
-export default function TambahRuteScreen({ navigation }) {
+export default function TambahRuteScreen({ navigation, route }) {
   const { token } = useAuth();
   const insets = useSafeAreaInsets();
   const refMenit = useRef(null);
@@ -46,10 +45,27 @@ export default function TambahRuteScreen({ navigation }) {
   const [menit, setMenit] = useState('45');
   const [fokusJam, setFokusJam] = useState(null);
   const [pengingat, setPengingat] = useState(true);
-  const [pemilih, setPemilih] = useState(null); // 'asal' | 'tujuan' | null
   const [mencariGps, setMencariGps] = useState(false);
   const [galat, setGalat] = useState({});
   const [menyimpan, setMenyimpan] = useState(false);
+
+  // Hasil layar PilihLokasi (popTo + merge): hanya field asal/tujuan yang diganti, isian lain tetap.
+  const pilihan = route.params?.pilihan;
+  useEffect(() => {
+    if (!pilihan?.titik) return;
+    if (pilihan.jenis === 'asal') setAsal(pilihan.titik);
+    else setTujuan(pilihan.titik);
+    setGalat((g) => ({ ...g, rute: null }));
+  }, [pilihan]);
+
+  function bukaPemilih(jenis) {
+    Keyboard.dismiss();
+    navigation.navigate('PilihLokasi', {
+      jenis,
+      awal: jenis === 'tujuan' ? tujuan || asal : asal || tujuan,
+      pembanding: jenis === 'tujuan' ? asal : tujuan,
+    });
+  }
 
   function ubahHari(kode) {
     setHari((h) => (h.includes(kode) ? h.filter((x) => x !== kode) : [...h, kode]));
@@ -135,7 +151,7 @@ export default function TambahRuteScreen({ navigation }) {
           <View style={styles.bagian}>
             <Text style={t('semibold', 12, colors.teks.sekunder)}>Dari dan ke</Text>
             <View style={styles.pemilihRute}>
-              <Pressable style={[styles.baris, styles.garisBawah]} onPress={() => setPemilih('asal')} accessibilityRole="button">
+              <Pressable style={[styles.baris, styles.garisBawah]} onPress={() => bukaPemilih('asal')} accessibilityRole="button">
                 <SvgXml xml={ruteAsal} width={12} height={12} />
                 <View style={styles.barisTeks}>
                   <Text style={t('semibold', 11, colors.teks.samar)}>Asal</Text>
@@ -153,7 +169,7 @@ export default function TambahRuteScreen({ navigation }) {
                   <Navigation size={16} color={colors.brand.biru} strokeWidth={2} />
                 </Pressable>
               </Pressable>
-              <Pressable style={styles.baris} onPress={() => setPemilih('tujuan')} accessibilityRole="button">
+              <Pressable style={styles.baris} onPress={() => bukaPemilih('tujuan')} accessibilityRole="button">
                 <SvgXml xml={ruteTujuan} width={12} height={12} />
                 <View style={styles.barisTeks}>
                   <Text style={t('semibold', 11, colors.teks.samar)}>Tujuan</Text>
@@ -244,20 +260,6 @@ export default function TambahRuteScreen({ navigation }) {
           <Tombol label="Simpan rute" onPress={simpan} memuat={menyimpan} />
         </View>
       </KeyboardAvoidingView>
-
-      <PemilihLokasi
-        visible={pemilih !== null}
-        jenis={pemilih || 'asal'}
-        awal={pemilih === 'tujuan' ? tujuan || asal : asal || tujuan}
-        pembanding={pemilih === 'tujuan' ? asal : tujuan}
-        onTutup={() => setPemilih(null)}
-        onPilih={(titik) => {
-          if (pemilih === 'asal') setAsal(titik);
-          else setTujuan(titik);
-          setGalat((g) => ({ ...g, rute: null }));
-          setPemilih(null);
-        }}
-      />
     </View>
   );
 }
