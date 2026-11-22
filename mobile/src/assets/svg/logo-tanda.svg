@@ -1,0 +1,18 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="tanda" clip-path="url(#clip0_0_16)">
+<path id="Vector" d="M46 0H18C8.05887 0 0 8.05887 0 18V46C0 55.9411 8.05887 64 18 64H46C55.9411 64 64 55.9411 64 46V18C64 8.05887 55.9411 0 46 0Z" fill="url(#paint0_linear_0_16)"/>
+<path id="Vector_2" d="M14 54C14 40 26 38 32 34C38 30 48 28 48 16" stroke-width="9" stroke-linecap="round" stroke="white"/>
+<path id="Vector_3" d="M14 54C14 53.4661 14.0174 52.9497 14.0514 52.45M48 16C48 16.4764 47.9842 16.9371 47.9536 17.3828M14.7675 48.4019C15.0815 47.3641 15.483 46.4196 15.9554 45.5555M18.4122 42.2607C19.1404 41.5169 19.9286 40.8521 20.7531 40.2477M24.2518 38.0733C25.1755 37.5743 26.1035 37.1141 27.0078 36.6712M30.6812 34.8024C31.1453 34.5413 31.5869 34.2754 32 34C32.3753 33.7498 32.7662 33.5075 33.1693 33.27M36.4006 31.518C37.2054 31.0974 38.0219 30.6686 38.8297 30.2138M41.9297 28.2414C42.6674 27.6963 43.3704 27.1036 44.0191 26.4464M46.2287 23.5238C46.6575 22.7536 47.0212 21.9129 47.3053 20.9895" stroke-width="1.6" stroke-linecap="round" stroke="#185FA5"/>
+<path id="Vector_4" d="M48 23C52.9706 23 57 18.9706 57 14C57 9.02944 52.9706 5 48 5C43.0294 5 39 9.02944 39 14C39 18.9706 43.0294 23 48 23Z" fill="#EF9F27" fill-opacity="0.3"/>
+<path id="Vector_5" d="M48 19.5C51.0376 19.5 53.5 17.0376 53.5 14C53.5 10.9624 51.0376 8.5 48 8.5C44.9624 8.5 42.5 10.9624 42.5 14C42.5 17.0376 44.9624 19.5 48 19.5Z" fill="#EF9F27" stroke-width="2" stroke="white"/>
+</g>
+<defs>
+<linearGradient id="paint0_linear_0_16" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+<stop stop-color="#378ADD"/>
+<stop offset="1" stop-color="#0C447C"/>
+</linearGradient>
+<clipPath id="clip0_0_16">
+<rect width="64" height="64" fill="white"/>
+</clipPath>
+</defs>
+</svg>
