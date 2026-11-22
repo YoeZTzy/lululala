@@ -18,6 +18,16 @@ export function jamDari(iso) {
   return `${String(t.getHours()).padStart(2, '0')}.${String(t.getMinutes()).padStart(2, '0')}`;
 }
 
+// ISO -> "Hari ini 06.02" / "Kemarin 17.20" / "21 Nov 08.10"
+export function hariJam(iso, sekarang = new Date()) {
+  if (!iso) return '';
+  const t = new Date(iso);
+  const awal = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const selisih = Math.round((awal(sekarang) - awal(t)) / 86400000);
+  const hari = selisih === 0 ? 'Hari ini' : selisih === 1 ? 'Kemarin' : `${t.getDate()} ${BULAN[t.getMonth()]}`;
+  return `${hari} ${jamDari(iso)}`;
+}
+
 // Umur dalam menit dari ISO
 export function umurMenit(iso, sekarang = new Date()) {
   if (!iso) return Infinity;
