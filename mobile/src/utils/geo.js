@@ -1,6 +1,9 @@
 // Pusat Kota Bandung untuk peta.
 export const BANDUNG = { latitude: -6.9147, longitude: 107.6098, latitudeDelta: 0.08, longitudeDelta: 0.08 };
 
+// Asal dan tujuan rute dianggap titik yang sama bila lebih dekat dari ini.
+export const JARAK_MIN_ASAL_TUJUAN_M = 50;
+
 export function jarakMeter(a, b) {
   const r = 6371000;
   const rad = (x) => (x * Math.PI) / 180;

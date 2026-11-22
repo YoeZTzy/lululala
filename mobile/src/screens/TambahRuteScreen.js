@@ -12,14 +12,13 @@ import PesanGalat from '../components/PesanGalat';
 import { useAuth } from '../context/AuthContext';
 import ApiService from '../services/ApiService';
 import { colors, fonts, radius, t } from '../theme';
-import { jarakMeter } from '../utils/geo';
+import { JARAK_MIN_ASAL_TUJUAN_M, jarakMeter } from '../utils/geo';
 import { HARI, parseJam } from '../utils/jadwal';
 import { namaTempat, posisiSaya } from '../utils/lokasi';
 import { setPengingatRute } from '../utils/pengingat';
 import { cekNama } from '../utils/validasi';
 
-const JARAK_MIN_M = 50; // asal dan tujuan dianggap sama bila lebih dekat dari ini
-const PESAN_TERLALU_DEKAT = `Asal dan tujuan terlalu dekat (kurang dari ${JARAK_MIN_M} m). Pilih titik yang berbeda.`;
+const PESAN_TERLALU_DEKAT = `Asal dan tujuan terlalu dekat (kurang dari ${JARAK_MIN_ASAL_TUJUAN_M} m). Pilih titik yang berbeda.`;
 
 // Field backend -> kunci galat di form ini (untuk 422).
 const FIELD_FORM = {
@@ -76,7 +75,7 @@ export default function TambahRuteScreen({ navigation }) {
       nama: nama.trim() ? cekNama(nama) : 'Nama rute wajib diisi',
       rute: !asal || !tujuan
         ? 'Pilih asal dan tujuan'
-        : jarakMeter(asal, tujuan) < JARAK_MIN_M
+        : jarakMeter(asal, tujuan) < JARAK_MIN_ASAL_TUJUAN_M
           ? PESAN_TERLALU_DEKAT
           : null,
       hari: hari.length ? null : 'Pilih minimal satu hari',
@@ -249,7 +248,8 @@ export default function TambahRuteScreen({ navigation }) {
       <PemilihLokasi
         visible={pemilih !== null}
         jenis={pemilih || 'asal'}
-        awal={pemilih === 'tujuan' ? tujuan || asal : asal}
+        awal={pemilih === 'tujuan' ? tujuan || asal : asal || tujuan}
+        pembanding={pemilih === 'tujuan' ? asal : tujuan}
         onTutup={() => setPemilih(null)}
         onPilih={(titik) => {
           if (pemilih === 'asal') setAsal(titik);
