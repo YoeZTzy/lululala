@@ -281,7 +281,87 @@ async def run_all_tests():
                 rr_post,
             )
             print("[OK] 8. Partner API /api/route-risk (GET corridor fallback & POST segments)")
-            print("\n=== SEMUA 8 SUITE PENGUJIAN KONTRAK API LULULALA LOLOS 100% ===")
+
+            # 9. Endpoint aplikasi Hi-Fi: detail hazard, peluruhan, /api/me, reports?mine, days array, reporters_today
+            st, hz = await asgi_req("GET", "/api/hazards")
+            assert st == 200 and all("last_report_at" in h for h in hz["hazards"]), hz
+
+            st, rep9 = await asgi_req(
+                "POST",
+                "/api/reports",
+                {"incident_type": "kecelakaan", "severity": 4, "lat": -6.9300, "lon": 107.6700, "description": "Tabrakan"},
+                headers=user2_hdr,
+            )
+            assert st == 201 and rep9["hazard_id"] is None, (st, rep9)
+            st, conf9 = await asgi_req("POST", f"/api/reports/{rep9['id']}/confirmations", headers=demo_hdr)
+            assert st == 200 and "TitikRawanAktif" in conf9["emitted_events"], conf9
+
+            st, hz = await asgi_req("GET", "/api/hazards")
+            hz9 = next(h for h in hz["hazards"] if h["incident_type"] == "kecelakaan")
+            hid = hz9["id"]
+
+            st, det = await asgi_req("GET", f"/api/hazards/{hid}", headers=demo_hdr)
+            assert st == 200 and det["status"] == "Aktif" and det["reports"][0]["id"] == rep9["id"], det
+            assert det["target_report_id"] == rep9["id"] and det["reports"][0]["my_vote"] == "confirmation", det
+            assert det["reports"][0]["is_mine"] is False and "reporter_id" not in det["reports"][0]
+            st, det_owner = await asgi_req("GET", f"/api/hazards/{hid}", headers=user2_hdr)
+            assert det_owner["reports"][0]["is_mine"] is True and det_owner["target_report_id"] is None, det_owner
+            st, det_anon = await asgi_req("GET", f"/api/hazards/{hid}")
+            assert st == 200 and det_anon["reports"][0]["is_mine"] is False
+            assert (await asgi_req("GET", "/api/hazards/999999"))[0] == 404
+
+            # Peluruhan saat dibaca: mundurkan waktu laporan 2,5 jam -> 0.65 - 0.20 = 0.45 -> Mereda
+            import sqlite3
+            from datetime import datetime, timedelta, timezone
+            db = sqlite3.connect(TEST_DATA_DIR / "monitoring.db")
+            old = (datetime.now(timezone.utc) - timedelta(hours=2.5)).isoformat()
+            db.execute("UPDATE reports SET created_at = ? WHERE id = ?", (old, rep9["id"]))
+            db.commit()
+            st, det = await asgi_req("GET", f"/api/hazards/{hid}")
+            assert det["status"] == "Mereda" and det["confidence_score"] == 0.45, det
+            past = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+            db.execute("UPDATE reports SET expires_at = ? WHERE id = ?", (past, rep9["id"]))
+            db.commit()
+            db.close()
+            st, hz = await asgi_req("GET", "/api/hazards")
+            assert all(h["id"] != hid for h in hz["hazards"]), hz
+            st, det = await asgi_req("GET", f"/api/hazards/{hid}")
+            assert det["status"] == "Selesai" and det["target_report_id"] is None, det
+
+            st, me = await asgi_req("GET", "/api/me", headers=demo_hdr)
+            assert st == 200 and me["email"] == "demo@lululala.id", me
+            assert me["stats"]["reports"] >= 5 and me["stats"]["votes"] >= 1 and me["stats"]["commutes"] >= 2, me
+            assert (await asgi_req("GET", "/api/me"))[0] == 401
+
+            st, mine = await asgi_req("GET", "/api/reports?mine=true", headers=demo_hdr)
+            assert st == 200 and mine["total"] >= 1 and all(r["is_mine"] for r in mine["items"]), mine
+
+            st, c9 = await asgi_req(
+                "POST",
+                "/api/commutes",
+                {"name": "Pagi", "origin_lat": -6.90, "origin_lon": 107.60, "dest_lat": -6.89, "dest_lon": 107.61,
+                 "days": ["jum", "sen", "rab"], "departure_time": "07:15"},
+                headers=demo_hdr,
+            )
+            assert st == 201 and c9["days"] == "sen,rab,jum" and c9["days_list"] == ["sen", "rab", "jum"], c9
+            st_empty, _ = await asgi_req(
+                "POST",
+                "/api/commutes",
+                {"name": "Kosong", "origin_lat": -6.90, "origin_lon": 107.60, "dest_lat": -6.89, "dest_lon": 107.61, "days": []},
+                headers=demo_hdr,
+            )
+            assert st_empty == 422
+            st, lst = await asgi_req("GET", "/api/commutes?include_risk=true", headers=demo_hdr)
+            assert st == 200 and all(i["risk"]["risk_level"] in ("Aman", "Waspada", "Hindari") for i in lst["items"]), lst
+            legacy = next(i for i in lst["items"] if i["days"] == "Senin-Jumat")
+            assert legacy["days_list"] == ["sen", "sel", "rab", "kam", "jum"], legacy
+            st, plain = await asgi_req("GET", "/api/commutes", headers=demo_hdr)
+            assert all("risk" not in i for i in plain["items"])
+
+            st, sm = await asgi_req("GET", "/api/summary")
+            assert st == 200 and sm["reporters_today"] >= 2, sm
+            print("[OK] 9. Hi-Fi: /api/hazards/{id}, peluruhan hazard, /api/me stats, reports?mine, days array, reporters_today")
+            print("\n=== SEMUA 9 SUITE PENGUJIAN KONTRAK API LULULALA LOLOS 100% ===")
     finally:
         shutil.rmtree(TEST_DATA_DIR, ignore_errors=True)
 

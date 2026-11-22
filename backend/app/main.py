@@ -1,9 +1,9 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.modules.iam.router import router as iam_router, init_iam_db
-from app.modules.monitoring.router import router as monitoring_router, init_monitoring_db
-from app.modules.risk.router import router as risk_router, init_risk_db
+from app.modules.iam.router import router as iam_router, init_iam_db, get_current_user, get_me
+from app.modules.monitoring.router import router as monitoring_router, init_monitoring_db, user_activity_counts
+from app.modules.risk.router import router as risk_router, init_risk_db, count_user_commutes
 
 
 @asynccontextmanager
@@ -50,6 +50,13 @@ def health_check():
         "city": "Bandung",
         "bounded_contexts": ["iam", "monitoring", "risk"],
     }
+
+
+@app.get("/api/me", tags=["Identitas & Akses"], summary="Profil pengguna login + statistik aktivitas")
+def me_with_stats(user: dict = Depends(get_current_user)):
+    # Alias /api/auth/me ditambah stats dari context Pemantauan & Risiko (komposisi di root aplikasi).
+    profile = get_me(user)
+    return {**profile, "stats": {**user_activity_counts(user["user_id"]), "commutes": count_user_commutes(user["user_id"])}}
 
 
 app.include_router(iam_router)
