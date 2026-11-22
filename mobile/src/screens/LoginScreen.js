@@ -141,7 +141,7 @@ export default function LoginScreen({ navigation }) {
 
           <TouchableOpacity
             style={styles.linkRow}
-            onPress={() => navigation.navigate('Register')}
+            onPress={() => navigation.navigate('Daftar')}
             disabled={submitting}
           >
             <Text style={styles.linkText}>
