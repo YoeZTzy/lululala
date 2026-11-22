@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { petakanGalat422 } from '../utils/galatApi';
+import { PESAN_422_UMUM, petakanGalat422 } from '../utils/galatApi';
 
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || 'https://lululala.stei.fun/api';
@@ -15,6 +15,14 @@ export class ApiError extends Error {
     this.fields = fields; // 422: { namaField: 'pesan Indonesia' }
   }
 }
+
+// Detail bawaan FastAPI/Starlette (Inggris) -> pesan Indonesia. Detail buatan backend sudah berbahasa Indonesia.
+const DETAIL_BAWAAN = {
+  'Not Found': 'Fitur ini belum tersedia di server. Coba lagi nanti.',
+  'Method Not Allowed': 'Fitur ini belum tersedia di server. Coba lagi nanti.',
+  'Internal Server Error': 'Server sedang bermasalah. Coba lagi sebentar lagi.',
+  'There was an error parsing the body': 'Data yang dikirim tidak terbaca. Coba lagi.',
+};
 
 // Dipanggil saat server menolak token (401) pada permintaan yang membawa token: AuthContext memasang signOut di sini.
 let onUnauthorized = null;
@@ -72,8 +80,9 @@ async function request(path, { method = 'GET', body, token, headers = {} } = {})
             ? 'Terlalu banyak permintaan. Coba beberapa saat lagi.'
             : `Permintaan gagal (HTTP ${response.status}).`);
       const readableDetail = Array.isArray(detail)
-        ? detail.map((d) => d.msg || String(d)).join(', ')
-        : String(detail);
+        ? PESAN_422_UMUM
+        : DETAIL_BAWAAN[String(detail)] ||
+          (response.status >= 500 ? 'Server sedang bermasalah. Coba lagi sebentar lagi.' : String(detail));
       throw new ApiError(readableDetail, response.status, false);
     }
 
@@ -161,9 +170,15 @@ const ApiService = {
     });
   },
 
-  // GET /api/me = profil + stats {reports, votes, commutes}
-  getMe(token) {
-    return request('/me', { token });
+  // GET /api/me = profil + stats {reports, votes, commutes}.
+  // shortcut: server yang belum diperbarui tidak punya /me (404) -> profil dari /auth/me tanpa stats; hapus setelah deploy.
+  async getMe(token) {
+    try {
+      return await request('/me', { token });
+    } catch (err) {
+      if (err.status !== 404) throw err;
+      return request('/auth/me', { token });
+    }
   },
 
   // Monitoring
@@ -180,8 +195,11 @@ const ApiService = {
     return request(`/hazards/${hazardId}`, { token });
   },
 
-  getMyReports(token) {
-    return fetchWithCache('my_reports', () => request('/reports?mine=true', { token }));
+  // Disaring is_mine juga di app: backend lama mengabaikan ?mine=true dan mengembalikan laporan semua warga.
+  async getMyReports(token) {
+    const hasil = await fetchWithCache('my_reports', () => request('/reports?mine=true', { token }));
+    const items = (hasil.data?.items || []).filter((r) => r.is_mine);
+    return { ...hasil, data: { ...hasil.data, items, total: items.length } };
   },
 
   getReports(token, bbox) {
