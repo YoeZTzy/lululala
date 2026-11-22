@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
-import { CircleExclamationPoint } from 'lucide-react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { CircleExclamationPoint, RotateCw } from 'lucide-react-native';
 import { colors, radius, t } from '../theme';
 import Tombol from './Tombol';
 
@@ -35,6 +35,23 @@ export function KeadaanError({ pesan, onCobaLagi }) {
   );
 }
 
+// Galat per bagian: satu baris teks ramah + tombol kecil "Coba lagi". Pesan teknis tidak ditampilkan.
+export function GalatBagian({ pesan, galat, onCobaLagi, style }) {
+  const teks = galat?.isNetworkError ? `${pesan} Periksa koneksi internetmu.` : pesan;
+  return (
+    <View style={[styles.bagian, style]} accessibilityRole="alert">
+      <CircleExclamationPoint size={16} color={colors.risiko.hindari} strokeWidth={2} />
+      <Text style={[t('semibold', 12, colors.teks.sekunder), { flex: 1 }]}>{teks}</Text>
+      {onCobaLagi ? (
+        <Pressable onPress={onCobaLagi} style={styles.cobaLagi} accessibilityRole="button" hitSlop={8}>
+          <RotateCw size={13} color={colors.brand.biru} strokeWidth={2.25} />
+          <Text style={t('bold', 12, colors.brand.biru)}>Coba lagi</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 export function KeadaanKosong({ Ikon, judul, pesan, labelAksi, onAksi }) {
   return (
     <View style={styles.wadah}>
@@ -50,4 +67,14 @@ const styles = StyleSheet.create({
   wadah: { alignItems: 'center', gap: 6, paddingVertical: 20, paddingHorizontal: 16 },
   tengah: { textAlign: 'center' },
   tombol: { alignSelf: 'stretch', marginTop: 8 },
+  bagian: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 },
+  cobaLagi: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 30,
+    paddingHorizontal: 12,
+    borderRadius: 15,
+    backgroundColor: colors.brand.langit50,
+  },
 });

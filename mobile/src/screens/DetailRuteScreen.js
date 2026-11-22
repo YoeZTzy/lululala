@@ -13,7 +13,7 @@ import {
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ruteAsal, ruteTujuan } from '../assets/svg';
-import { IkonJenis, ItemTitikRawan, JENIS, KeadaanError, Penanda, Skeleton, Tombol } from '../components';
+import { GalatBagian, IkonJenis, ItemTitikRawan, JENIS, Penanda, Skeleton, Tombol } from '../components';
 import BilahStatus from '../components/BilahStatus';
 import TombolBulat from '../components/TombolBulat';
 import { useAuth } from '../context/AuthContext';
@@ -51,7 +51,7 @@ async function muatDetail(token, id) {
     ApiService.getSummary().catch(() => null),
   ]);
   const rute = (daftar.data?.items || []).find((r) => r.id === id);
-  if (!rute) throw new Error('Rute tidak ditemukan.');
+  if (!rute) throw Object.assign(new Error('Rute tidak ditemukan.'), { tidakAda: true });
   return { rute, risk, cuaca: ringkasan?.data?.weather || null, dinilai: new Date().toISOString() };
 }
 
@@ -163,7 +163,11 @@ export default function DetailRuteScreen({ navigation, route }) {
               <Skeleton tinggi={60} />
             </View>
           ) : galat ? (
-            <KeadaanError pesan={galat.message} onCobaLagi={muatUlang} />
+            <GalatBagian
+              pesan={galat.tidakAda ? 'Rute ini sudah tidak ada.' : 'Penilaian rute belum bisa dimuat.'}
+              galat={galat}
+              onCobaLagi={galat.tidakAda ? undefined : muatUlang}
+            />
           ) : (
             <>
               <View style={{ gap: 3 }}>

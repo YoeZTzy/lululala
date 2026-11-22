@@ -5,7 +5,7 @@ import { SvgXml } from 'react-native-svg';
 import { Bell, ChevronRight, Lock, LogOut, Megaphone, Route, Sparkles } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { profilTekstur } from '../assets/svg';
-import { IkonJenis, ItemTitikRawan, JENIS, KeadaanError, KeadaanKosong, Sakelar, Skeleton } from '../components';
+import { GalatBagian, IkonJenis, ItemTitikRawan, JENIS, KeadaanKosong, Sakelar, Skeleton } from '../components';
 import BilahStatus from '../components/BilahStatus';
 import { titikGradien } from '../components/gradien';
 import { useAuth } from '../context/AuthContext';
@@ -25,16 +25,22 @@ function inisial(nama) {
   return ((kata[0]?.[0] || '') + (kata[1]?.[0] || '')).toUpperCase() || '?';
 }
 
+// Profil dan laporan dimuat terpisah: gagal satu tidak mengosongkan bagian lain.
 async function muatProfil(token) {
-  const [me, laporan] = await Promise.all([ApiService.getMe(token), ApiService.getMyReports(token).catch(() => null)]);
-  return { me, laporan: laporan?.data?.items || [] };
+  const [me, laporan] = await Promise.allSettled([ApiService.getMe(token), ApiService.getMyReports(token)]);
+  return {
+    me: me.status === 'fulfilled' ? me.value : null,
+    galatMe: me.status === 'rejected' ? me.reason : null,
+    laporan: laporan.status === 'fulfilled' ? laporan.value.data?.items || [] : [],
+    galatLaporan: laporan.status === 'rejected' ? laporan.reason : null,
+  };
 }
 
 export default function ProfilScreen({ navigation }) {
   const { token, user, signOut, perbaruiUser } = useAuth();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
-  const { data, memuat, menyegarkan, galat, muatUlang, segarkan } = useMuat(() => muatProfil(token));
+  const { data, memuat, menyegarkan, muatUlang, segarkan } = useMuat(() => muatProfil(token));
   const [pengingat, setPengingat] = useState(true);
 
   useEffect(() => {
@@ -73,7 +79,9 @@ export default function ProfilScreen({ navigation }) {
     ]);
   }
 
-  const angka = (n) => (memuat && !stats ? '–' : String(n ?? 0));
+  const memuatAwal = memuat && !data;
+  // "–" bila stats tidak ada (gagal dimuat / server lama), jangan pernah 0 palsu.
+  const angka = (n) => (stats ? String(n ?? 0) : '–');
 
   return (
     <View style={styles.layar}>
@@ -110,21 +118,36 @@ export default function ProfilScreen({ navigation }) {
 
         <View style={[styles.isi, { marginTop: ATAS_STATISTIK - TINGGI_HEADER }]}>
           <View style={styles.statistik}>
-            {[
-              [angka(stats?.reports), 'laporan'],
-              [angka(stats?.votes), 'konfirmasi'],
-              [angka(stats?.commutes), 'rute rutin'],
-            ].map(([nilai, label], i) => (
-              <View key={label} style={styles.kolomStat}>
-                {i > 0 ? <View style={styles.pemisah} /> : null}
-                <View style={styles.stat}>
-                  <Text style={t('extrabold', 22, colors.teks.utama)}>{nilai}</Text>
-                  <Text style={t('semibold', 11, colors.teks.sekunder)}>{label}</Text>
+            <View style={styles.barisStat}>
+              {[
+                [angka(stats?.reports), 'laporan'],
+                [angka(stats?.votes), 'konfirmasi'],
+                [angka(stats?.commutes), 'rute rutin'],
+              ].map(([nilai, label], i) => (
+                <View key={label} style={styles.kolomStat}>
+                  {i > 0 ? <View style={styles.pemisah} /> : null}
+                  <View style={styles.stat}>
+                    {memuatAwal ? (
+                      <Skeleton tinggi={24} lebar={28} style={{ marginBottom: 3 }} />
+                    ) : (
+                      <Text style={t('extrabold', 22, colors.teks.utama)}>{nilai}</Text>
+                    )}
+                    <Text style={t('semibold', 11, colors.teks.sekunder)}>{label}</Text>
+                  </View>
                 </View>
-              </View>
-            ))}
+              ))}
+            </View>
+            {data?.galatMe ? (
+              <GalatBagian
+                pesan="Data profil belum bisa dimuat."
+                galat={data.galatMe}
+                onCobaLagi={muatUlang}
+                style={styles.galatStat}
+              />
+            ) : data?.me && !stats ? (
+              <GalatBagian pesan="Statistik belum tersedia di server." style={styles.galatStat} />
+            ) : null}
           </View>
-          {galat && !data ? <KeadaanError pesan={galat.message} onCobaLagi={muatUlang} /> : null}
 
           <View style={[styles.kartu, { marginTop: 22 }]}>
             <Pressable
@@ -154,12 +177,14 @@ export default function ProfilScreen({ navigation }) {
           </View>
 
           <Text style={[t('extrabold', 11, colors.teks.samar), styles.label]}>LAPORAN TERAKHIRMU</Text>
-          <View style={[styles.kartu, { paddingVertical: memuat ? 12 : 0 }]}>
-            {memuat ? (
+          <View style={[styles.kartu, { paddingVertical: memuatAwal ? 12 : 0 }]}>
+            {memuatAwal ? (
               <View style={{ gap: 12 }}>
                 <Skeleton tinggi={36} />
                 <Skeleton tinggi={36} />
               </View>
+            ) : data?.galatLaporan ? (
+              <GalatBagian pesan="Laporanmu belum bisa dimuat." galat={data.galatLaporan} onCobaLagi={muatUlang} />
             ) : data?.laporan.length ? (
               data.laporan.slice(0, 5).map((r, i, arr) => (
                 <ItemTitikRawan
@@ -218,10 +243,6 @@ const styles = StyleSheet.create({
   nama: { flex: 1, gap: 3, paddingTop: 6 },
   isi: { paddingHorizontal: 16 },
   statistik: {
-    height: 76,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
     borderRadius: radius.kartu,
     backgroundColor: colors.permukaan.kartu,
     shadowColor: '#08244A',
@@ -230,6 +251,8 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
+  barisStat: { height: 76, flexDirection: 'row', alignItems: 'center', paddingVertical: 14 },
+  galatStat: { marginHorizontal: 16, borderTopWidth: 1, borderTopColor: colors.garis.halus },
   kolomStat: { flex: 1, flexDirection: 'row', alignItems: 'center' },
   pemisah: { width: 1, height: 32, backgroundColor: colors.garis.halus },
   stat: { flex: 1, alignItems: 'center', gap: 1 },

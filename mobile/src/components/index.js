@@ -7,7 +7,7 @@ export { IkonJenis, JENIS, DAFTAR_JENIS } from './IkonJenis';
 export { default as Input } from './Input';
 export { default as ItemTitikRawan } from './ItemTitikRawan';
 export { default as KartuRute, GarisRuteMini } from './KartuRute';
-export { KeadaanError, KeadaanKosong, Skeleton } from './Keadaan';
+export { GalatBagian, KeadaanError, KeadaanKosong, Skeleton } from './Keadaan';
 export { LogoLengkap, LogoTanda } from './Logo';
 export { default as Penanda, PenandaLokasiSaya } from './Penanda';
 export { default as Sakelar } from './Sakelar';

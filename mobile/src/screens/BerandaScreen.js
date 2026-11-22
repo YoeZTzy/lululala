@@ -5,7 +5,7 @@ import MapView, { Marker } from 'react-native-maps';
 import { Bell, ChevronRight, CloudRain, Plus, Route, Sun } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { berandaHujan, berandaTekstur, loncengTitik } from '../assets/svg';
-import { AvatarWarga, BarisRute, KartuRute, KeadaanError, KeadaanKosong, Penanda, Skeleton } from '../components';
+import { AvatarWarga, BarisRute, GalatBagian, KartuRute, KeadaanKosong, Penanda, Skeleton } from '../components';
 import BilahStatus from '../components/BilahStatus';
 import { titikGradien } from '../components/gradien';
 import { useAuth } from '../context/AuthContext';
@@ -116,8 +116,8 @@ export default function BerandaScreen({ navigation }) {
               <Skeleton tinggi={14} lebar="80%" />
             </View>
           ) : galat && !data ? (
-            <View style={[styles.kartuPutih, styles.bayanganKartu]}>
-              <KeadaanError pesan={galat.message} onCobaLagi={muatUlang} />
+            <View style={[styles.kartuPutih, styles.bayanganKartu, { paddingHorizontal: 16, paddingVertical: 6 }]}>
+              <GalatBagian pesan="Rute rutinmu belum bisa dimuat." galat={galat} onCobaLagi={muatUlang} />
             </View>
           ) : !berikut ? (
             <View style={[styles.kartuPutih, styles.bayanganKartu]}>
