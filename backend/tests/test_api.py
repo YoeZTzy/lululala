@@ -363,7 +363,36 @@ async def run_all_tests():
             st, sm = await asgi_req("GET", "/api/summary")
             assert st == 200 and sm["reporters_today"] >= 2, sm
             print("[OK] 9. Hi-Fi: /api/hazards/{id}, peluruhan hazard, /api/me stats, reports?mine, days array, reporters_today")
-            print("\n=== SEMUA 9 SUITE PENGUJIAN KONTRAK API LULULALA LOLOS 100% ===")
+
+            # 10. Payload persis dari layar Tambah Rute (days array + label + jam), POST dan PUT
+            app_body = {
+                "name": "Ke kampus",
+                "origin_lat": -6.9147, "origin_lon": 107.6098,
+                "dest_lat": -6.8915, "dest_lon": 107.6107,
+                "origin_label": ("Lokasi saya · Jl. Terusan Jakarta · Antapani Kidul " * 2)[:80],
+                "dest_label": "Jl. Ganesa · Coblong",
+                "days": ["sen", "sel", "rab", "kam", "jum"],
+                "departure_time": "06:45",
+            }
+            st, c10 = await asgi_req("POST", "/api/commutes", app_body, headers=demo_hdr)
+            assert st == 201 and c10["days"] == "sen,sel,rab,kam,jum" and c10["departure_time"] == "06:45", c10
+            assert c10["origin_label"] == app_body["origin_label"] and c10["dest_label"] == "Jl. Ganesa · Coblong", c10
+            # Bentuk teks kode hari (dikirim app agar juga diterima backend lama): disimpan apa adanya, days_list terbaca.
+            st, c10s = await asgi_req("POST", "/api/commutes", {**app_body, "days": "sen,rab,sab"}, headers=demo_hdr)
+            assert st == 201 and c10s["days"] == "sen,rab,sab" and c10s["days_list"] == ["sen", "rab", "sab"], c10s
+            st, u10 = await asgi_req(
+                "PUT", f"/api/commutes/{c10['id']}", {**app_body, "days": ["min", "sab"], "departure_time": "17:30"}, headers=demo_hdr
+            )
+            assert st == 200 and u10["days"] == "sab,min" and u10["departure_time"] == "17:30", u10
+            # 422 memakai loc ["body", <field>, ...]; app memetakan field ini ke pesan Indonesia.
+            st, bad = await asgi_req("POST", "/api/commutes", {**app_body, "days": ["senin"]}, headers=demo_hdr)
+            assert st == 422 and all(d["loc"][:2] == ["body", "days"] for d in bad["detail"]), bad
+            st, bad = await asgi_req("POST", "/api/commutes", {**app_body, "dest_label": "x" * 81}, headers=demo_hdr)
+            assert st == 422 and bad["detail"][0]["loc"][:2] == ["body", "dest_label"], bad
+            for cid10 in (c10["id"], c10s["id"]):
+                assert (await asgi_req("DELETE", f"/api/commutes/{cid10}", headers=demo_hdr))[0] == 200
+            print("[OK] 10. Payload Tambah Rute: days array/teks + label + jam di POST & PUT, loc 422 per field")
+            print("\n=== SEMUA 10 SUITE PENGUJIAN KONTRAK API LULULALA LOLOS 100% ===")
     finally:
         shutil.rmtree(TEST_DATA_DIR, ignore_errors=True)
 
