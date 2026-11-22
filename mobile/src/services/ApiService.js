@@ -108,10 +108,15 @@ async function request(path, { method = 'GET', body, token, headers = {} } = {})
   }
 }
 
-async function saveCache(cacheKey, data) {
+const AWALAN_CACHE = '@lululala_cache_';
+// Naik tiap cache dikosongkan (keluar akun): respons sesi lama yang masih di jalan tidak menulis ulang cache.
+let generasiCache = 0;
+
+async function saveCache(cacheKey, data, generasi) {
+  if (generasi !== generasiCache) return;
   try {
     const payload = JSON.stringify({ data, cachedAt: new Date().toISOString() });
-    await AsyncStorage.setItem(`@lululala_cache_${cacheKey}`, payload);
+    await AsyncStorage.setItem(`${AWALAN_CACHE}${cacheKey}`, payload);
   } catch {
     // Abaikan kegagalan penulisan cache agar aplikasi tidak crash
   }
@@ -119,7 +124,7 @@ async function saveCache(cacheKey, data) {
 
 async function loadCache(cacheKey) {
   try {
-    const raw = await AsyncStorage.getItem(`@lululala_cache_${cacheKey}`);
+    const raw = await AsyncStorage.getItem(`${AWALAN_CACHE}${cacheKey}`);
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {
@@ -128,9 +133,10 @@ async function loadCache(cacheKey) {
 }
 
 async function fetchWithCache(cacheKey, fetcher) {
+  const generasi = generasiCache;
   try {
     const data = await fetcher();
-    await saveCache(cacheKey, data);
+    await saveCache(cacheKey, data, generasi);
     return { data, fromCache: false, cachedAt: null, error: null };
   } catch (err) {
     const cached = await loadCache(cacheKey);
@@ -245,9 +251,11 @@ const ApiService = {
     return fetchWithCache('alerts', () => request('/alerts', { token }));
   },
 
+  // Hapus semua cache offline (@lululala_cache_*), termasuk key yang tidak terdaftar di sini.
   async clearOfflineCache() {
-    const keys = ['summary', 'hazards', 'reports', 'my_reports', 'commutes', 'commutes_risk', 'alerts'];
-    await AsyncStorage.multiRemove(keys.map((k) => `@lululala_cache_${k}`));
+    generasiCache += 1;
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(AWALAN_CACHE));
+    if (keys.length) await AsyncStorage.multiRemove(keys);
   },
 };
 

@@ -35,11 +35,16 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [initializing, setInitializing] = useState(true);
 
+  // Dipakai untuk keluar manual dan otomatis (401). Token/user di memori dikosongkan dulu: navigator
+  // langsung pindah ke Login dan membuang state semua layar data; lalu sesi dan cache offline dihapus.
   const signOut = useCallback(async () => {
     setToken(null);
     setUser(null);
-    await Promise.all([SecureStore.deleteItemAsync(KUNCI_TOKEN), SecureStore.deleteItemAsync(KUNCI_USER)]);
-    await ApiService.clearOfflineCache().catch(() => {});
+    await Promise.all([
+      SecureStore.deleteItemAsync(KUNCI_TOKEN).catch(() => {}),
+      SecureStore.deleteItemAsync(KUNCI_USER).catch(() => {}),
+      ApiService.clearOfflineCache().catch(() => {}),
+    ]);
   }, []);
 
   useEffect(() => {
@@ -70,6 +75,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   async function simpanSesi(nextToken, nextUser) {
+    // Jaga-jaga bila keluar sebelumnya terputus (app ditutup): cache akun lain tidak boleh terbawa.
+    await ApiService.clearOfflineCache().catch(() => {});
     await Promise.all([
       SecureStore.setItemAsync(KUNCI_TOKEN, nextToken),
       SecureStore.setItemAsync(KUNCI_USER, JSON.stringify(nextUser)),
