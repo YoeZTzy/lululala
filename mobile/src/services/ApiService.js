@@ -61,7 +61,7 @@ async function request(path, { method = 'GET', body, token, headers = {} } = {})
       const detail =
         (data && (data.detail || data.message)) ||
         (response.status === 404
-          ? 'Endpoint tidak ditemukan (404). Pastikan microservice STB aktif.'
+          ? 'Data tidak ditemukan.'
           : response.status === 429
             ? 'Terlalu banyak permintaan. Coba beberapa saat lagi.'
             : `Permintaan gagal (HTTP ${response.status}).`);
@@ -78,13 +78,13 @@ async function request(path, { method = 'GET', body, token, headers = {} } = {})
     }
     if (err && err.name === 'AbortError') {
       throw new ApiError(
-        'Koneksi ke server Lululala melewati batas waktu (10 detik).',
+        'Server terlalu lama merespons. Coba lagi sebentar lagi.',
         0,
         true
       );
     }
     throw new ApiError(
-      'Tidak dapat terhubung ke server Lululala. Periksa koneksi internet atau status STB.',
+      'Tidak bisa terhubung. Periksa koneksi internetmu.',
       0,
       true
     );
@@ -155,8 +155,9 @@ const ApiService = {
     });
   },
 
+  // GET /api/me = profil + stats {reports, votes, commutes}
   getMe(token) {
-    return request('/auth/me', { token });
+    return request('/me', { token });
   },
 
   // Monitoring
@@ -167,6 +168,14 @@ const ApiService = {
   getHazards(bbox) {
     const qs = bbox ? `?bbox=${encodeURIComponent(bbox)}` : '';
     return fetchWithCache('hazards', () => request(`/hazards${qs}`));
+  },
+
+  getHazard(token, hazardId) {
+    return request(`/hazards/${hazardId}`, { token });
+  },
+
+  getMyReports(token) {
+    return fetchWithCache('my_reports', () => request('/reports?mine=true', { token }));
   },
 
   getReports(token, bbox) {
@@ -187,8 +196,9 @@ const ApiService = {
   },
 
   // Risk & Commutes
-  getCommutes(token) {
-    return fetchWithCache('commutes', () => request('/commutes', { token }));
+  getCommutes(token, { includeRisk = false } = {}) {
+    const qs = includeRisk ? '?include_risk=true' : '';
+    return fetchWithCache(`commutes${qs ? '_risk' : ''}`, () => request(`/commutes${qs}`, { token }));
   },
 
   createCommute(token, payload) {
@@ -212,9 +222,64 @@ const ApiService = {
   },
 
   async clearOfflineCache() {
-    const keys = ['summary', 'hazards', 'reports', 'commutes', 'alerts'];
+    const keys = ['summary', 'hazards', 'reports', 'my_reports', 'commutes', 'commutes_risk', 'alerts'];
     await AsyncStorage.multiRemove(keys.map((k) => `@lululala_cache_${k}`));
   },
 };
+
+// ---------------------------------------------------------------------------
+// API kelompok lain (Health & Tourism). URL & key dari env Expo:
+//   EXPO_PUBLIC_HEALTH_API_URL, EXPO_PUBLIC_HEALTH_API_KEY
+//   EXPO_PUBLIC_TOURISM_API_URL, EXPO_PUBLIC_TOURISM_API_KEY
+// Bila URL kosong, fungsi mengembalikan data contoh (mock) agar UI tetap bisa dikembangkan.
+// ---------------------------------------------------------------------------
+const HEALTH_API_URL = process.env.EXPO_PUBLIC_HEALTH_API_URL || '';
+const HEALTH_API_KEY = process.env.EXPO_PUBLIC_HEALTH_API_KEY || '';
+const TOURISM_API_URL = process.env.EXPO_PUBLIC_TOURISM_API_URL || '';
+const TOURISM_API_KEY = process.env.EXPO_PUBLIC_TOURISM_API_KEY || '';
+
+const MOCK_FASKES = [
+  { id: 'mock-1', nama: 'RS Contoh Bandung', jenis: 'rumah_sakit', lat: -6.8949, lon: 107.6105 },
+  { id: 'mock-2', nama: 'Puskesmas Contoh', jenis: 'puskesmas', lat: -6.9175, lon: 107.6191 },
+];
+
+const MOCK_DESTINASI = [
+  { id: 'mock-1', nama: 'Destinasi Contoh A', kategori: 'taman', lat: -6.9025, lon: 107.6187 },
+  { id: 'mock-2', nama: 'Destinasi Contoh B', kategori: 'museum', lat: -6.9218, lon: 107.6071 },
+];
+
+async function requestMitra(baseUrl, apiKey, path) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      headers: { Accept: 'application/json', ...(apiKey ? { 'X-API-Key': apiKey } : {}) },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new ApiError(`Layanan mitra gagal (HTTP ${res.status}).`, res.status, false);
+    return await res.json();
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError('Layanan mitra tidak bisa dihubungi.', 0, true);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Fasilitas kesehatan dari kelompok Health.
+// TODO: sesuaikan path & bentuk respons dengan dokumentasi API kelompok Health setelah tersedia.
+export function getFaskes({ lat, lon } = {}) {
+  if (!HEALTH_API_URL) return Promise.resolve({ items: MOCK_FASKES, mock: true });
+  const qs = lat != null && lon != null ? `?lat=${lat}&lon=${lon}` : '';
+  return requestMitra(HEALTH_API_URL, HEALTH_API_KEY, `/faskes${qs}`);
+}
+
+// Destinasi wisata dari kelompok Tourism.
+// TODO: sesuaikan path & bentuk respons dengan dokumentasi API kelompok Tourism setelah tersedia.
+export function getDestinasi({ lat, lon } = {}) {
+  if (!TOURISM_API_URL) return Promise.resolve({ items: MOCK_DESTINASI, mock: true });
+  const qs = lat != null && lon != null ? `?lat=${lat}&lon=${lon}` : '';
+  return requestMitra(TOURISM_API_URL, TOURISM_API_KEY, `/destinasi${qs}`);
+}
 
 export default ApiService;
