@@ -340,10 +340,12 @@ async def run_all_tests():
                 "POST",
                 "/api/commutes",
                 {"name": "Pagi", "origin_lat": -6.90, "origin_lon": 107.60, "dest_lat": -6.89, "dest_lon": 107.61,
-                 "days": ["jum", "sen", "rab"], "departure_time": "07:15"},
+                 "days": ["jum", "sen", "rab"], "departure_time": "07:15",
+                 "origin_label": "Rumah · Antapani", "dest_label": "Kampus ITB"},
                 headers=demo_hdr,
             )
             assert st == 201 and c9["days"] == "sen,rab,jum" and c9["days_list"] == ["sen", "rab", "jum"], c9
+            assert c9["origin_label"] == "Rumah · Antapani" and c9["dest_label"] == "Kampus ITB", c9
             st_empty, _ = await asgi_req(
                 "POST",
                 "/api/commutes",

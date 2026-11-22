@@ -175,6 +175,11 @@ def init_risk_db():
                 created_at TEXT NOT NULL
             );
         """)
+        # Migrasi tanpa merusak data lama: label asal/tujuan opsional untuk tampilan aplikasi.
+        route_cols = {r[1] for r in conn.execute("PRAGMA table_info(commute_routes)")}
+        for col in ("origin_label", "dest_label"):
+            if col not in route_cols:
+                conn.execute(f"ALTER TABLE commute_routes ADD COLUMN {col} TEXT")
 
         # Seed rute rutin contoh untuk akun demo@lululala.id (user_id=1) jika kosong
         r_count = conn.execute("SELECT COUNT(*) FROM commute_routes").fetchone()[0]
@@ -278,6 +283,8 @@ class CommuteReq(BaseModel):
     days: Union[List[Literal["sen", "sel", "rab", "kam", "jum", "sab", "min"]], str] = "Senin-Jumat"
     departure_time: str = Field(default="06:45", min_length=4, max_length=10)
     segments: Optional[List[SegmentPoint]] = None
+    origin_label: Optional[str] = Field(default=None, max_length=80)
+    dest_label: Optional[str] = Field(default=None, max_length=80)
 
     @field_validator("days")
     @classmethod
@@ -326,8 +333,9 @@ def create_commute(body: CommuteReq, user: dict = Depends(get_current_user)):
         cur = conn.execute(
             """
             INSERT INTO commute_routes
-            (user_id, name, origin_lat, origin_lon, dest_lat, dest_lon, days, departure_time, segments_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (user_id, name, origin_lat, origin_lon, dest_lat, dest_lon, days, departure_time, segments_json,
+             origin_label, dest_label)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user["user_id"],
@@ -339,6 +347,8 @@ def create_commute(body: CommuteReq, user: dict = Depends(get_current_user)):
                 body.days.strip(),
                 body.departure_time.strip(),
                 seg_json,
+                (body.origin_label or "").strip() or None,
+                (body.dest_label or "").strip() or None,
             ),
         )
         row = conn.execute("SELECT * FROM commute_routes WHERE id = ?", (cur.lastrowid,)).fetchone()
@@ -358,7 +368,8 @@ def update_commute(commute_id: int, body: CommuteReq, user: dict = Depends(get_c
         conn.execute(
             """
             UPDATE commute_routes
-            SET name=?, origin_lat=?, origin_lon=?, dest_lat=?, dest_lon=?, days=?, departure_time=?, segments_json=?
+            SET name=?, origin_lat=?, origin_lon=?, dest_lat=?, dest_lon=?, days=?, departure_time=?, segments_json=?,
+                origin_label=?, dest_label=?
             WHERE id=?
             """,
             (
@@ -370,6 +381,8 @@ def update_commute(commute_id: int, body: CommuteReq, user: dict = Depends(get_c
                 body.days.strip(),
                 body.departure_time.strip(),
                 seg_json,
+                (body.origin_label or "").strip() or None,
+                (body.dest_label or "").strip() or None,
                 commute_id,
             ),
         )
