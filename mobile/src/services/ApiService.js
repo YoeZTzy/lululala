@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { petakanGalat422 } from '../utils/galatApi';
 
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || 'https://lululala.stei.fun/api';
@@ -6,11 +7,12 @@ export const API_BASE_URL =
 const REQUEST_TIMEOUT_MS = 10000;
 
 export class ApiError extends Error {
-  constructor(message, status = 0, isNetworkError = false) {
+  constructor(message, status = 0, isNetworkError = false, fields = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.isNetworkError = isNetworkError;
+    this.fields = fields; // 422: { namaField: 'pesan Indonesia' }
   }
 }
 
@@ -57,6 +59,10 @@ async function request(path, { method = 'GET', body, token, headers = {} } = {})
       if (response.status === 401 && token && onUnauthorized) {
         onUnauthorized();
         throw new ApiError('Sesi berakhir. Silakan masuk lagi.', 401, false);
+      }
+      if (response.status === 422) {
+        const { fields, message } = petakanGalat422(data?.detail);
+        throw new ApiError(message, 422, false, fields);
       }
       const detail =
         (data && (data.detail || data.message)) ||

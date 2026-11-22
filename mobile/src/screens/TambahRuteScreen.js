@@ -19,6 +19,20 @@ import { setPengingatRute } from '../utils/pengingat';
 import { cekNama } from '../utils/validasi';
 
 const JARAK_MIN_M = 50; // asal dan tujuan dianggap sama bila lebih dekat dari ini
+const PESAN_TERLALU_DEKAT = `Asal dan tujuan terlalu dekat (kurang dari ${JARAK_MIN_M} m). Pilih titik yang berbeda.`;
+
+// Field backend -> kunci galat di form ini (untuk 422).
+const FIELD_FORM = {
+  name: 'nama',
+  days: 'hari',
+  departure_time: 'jam',
+  origin_lat: 'rute',
+  origin_lon: 'rute',
+  origin_label: 'rute',
+  dest_lat: 'rute',
+  dest_lon: 'rute',
+  dest_label: 'rute',
+};
 
 export default function TambahRuteScreen({ navigation }) {
   const { token } = useAuth();
@@ -63,7 +77,7 @@ export default function TambahRuteScreen({ navigation }) {
       rute: !asal || !tujuan
         ? 'Pilih asal dan tujuan'
         : jarakMeter(asal, tujuan) < JARAK_MIN_M
-          ? 'Asal dan tujuan tidak boleh sama'
+          ? PESAN_TERLALU_DEKAT
           : null,
       hari: hari.length ? null : 'Pilih minimal satu hari',
       jam: parseJam(jamBerangkat) ? null : 'Jam tidak valid (00–23 : 00–59)',
@@ -81,13 +95,23 @@ export default function TambahRuteScreen({ navigation }) {
         dest_lon: tujuan.lon,
         origin_label: asal.label.slice(0, 80),
         dest_label: tujuan.label.slice(0, 80),
-        days: hari,
+        // Teks kode hari ("sen,sel,rab"): diterima backend baru maupun versi lama (yang hanya menerima string).
+        days: HARI.filter((h) => hari.includes(h.kode)).map((h) => h.kode).join(','),
         departure_time: jamBerangkat,
       });
       await setPengingatRute(rute.id, pengingat);
       navigation.replace('DetailRute', { id: rute.id });
     } catch (err) {
-      setGalat({ simpan: err.message });
+      if (err.status === 422 && err.fields) {
+        const perField = {};
+        for (const [field, pesan] of Object.entries(err.fields)) {
+          const kunci = FIELD_FORM[field];
+          if (kunci && !perField[kunci]) perField[kunci] = pesan;
+        }
+        setGalat({ ...perField, simpan: 'Data rute belum valid, cek kembali isianmu.' });
+      } else {
+        setGalat({ simpan: err.message });
+      }
     } finally {
       setMenyimpan(false);
     }

@@ -4,6 +4,7 @@ import { formatJam, keberangkatanBerikutnya, labelHari, labelSisa, parseJam } fr
 import { bboxDariRegion, fraksiPadaRute, formatJarak } from '../src/utils/geo.js';
 import { labelHujan } from '../src/utils/cuaca.js';
 import { relatif } from '../src/utils/waktu.js';
+import { petakanGalat422 } from '../src/utils/galatApi.js';
 
 assert.deepEqual(parseJam('06:45'), { jam: 6, menit: 45 });
 assert.equal(parseJam('24:00'), null);
@@ -35,5 +36,18 @@ assert.equal(formatJarak(1250), '1,3 km');
 assert.equal(labelHujan(0).label, 'Cerah');
 assert.equal(labelHujan(12).label, 'Hujan lebat');
 assert.equal(relatif(new Date(Date.now() - 8 * 60000).toISOString()), '8 mnt lalu');
+
+// 422 dari backend lama: days array ditolak sebagai string.
+const g1 = petakanGalat422([{ loc: ['body', 'days'], msg: 'Input should be a valid string' }]);
+assert.deepEqual(g1.fields, { days: 'Hari berangkat tidak valid' });
+assert.equal(g1.message, 'Hari berangkat tidak valid.');
+const g2 = petakanGalat422([
+  { loc: ['body', 'dest_lat'], msg: 'x' },
+  { loc: ['body', 'dest_lon'], msg: 'x' },
+]);
+assert.equal(g2.message, 'Lokasi tujuan tidak valid.', 'pesan sama digabung');
+assert.equal(petakanGalat422([{ loc: ['body', 'name'] }, { loc: ['body', 'days'] }]).message, 'Data belum valid, cek kembali isianmu.');
+assert.equal(petakanGalat422('teks').message, 'Data belum valid, cek kembali isianmu.');
+assert.ok(!/Input should/.test(petakanGalat422([{ loc: ['body', 'aneh'], msg: 'Input should be a valid string' }]).message));
 
 console.log('cek-utils: semua lolos');
