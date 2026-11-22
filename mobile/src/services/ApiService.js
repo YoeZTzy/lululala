@@ -14,6 +14,12 @@ export class ApiError extends Error {
   }
 }
 
+// Dipanggil saat server menolak token (401) pada permintaan yang membawa token: AuthContext memasang signOut di sini.
+let onUnauthorized = null;
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn;
+}
+
 async function request(path, { method = 'GET', body, token, headers = {} } = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -48,6 +54,10 @@ async function request(path, { method = 'GET', body, token, headers = {} } = {})
     }
 
     if (!response.ok) {
+      if (response.status === 401 && token && onUnauthorized) {
+        onUnauthorized();
+        throw new ApiError('Sesi berakhir. Silakan masuk lagi.', 401, false);
+      }
       const detail =
         (data && (data.detail || data.message)) ||
         (response.status === 404

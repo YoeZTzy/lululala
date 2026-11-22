@@ -1,229 +1,142 @@
-import React, { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
-  TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { SvgXml } from 'react-native-svg';
+import { Lock, Mail } from 'lucide-react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ilustrasiRute } from '../assets/svg';
+import { Input, LogoTanda, Tombol } from '../components';
+import BilahStatus from '../components/BilahStatus';
+import { titikGradien } from '../components/gradien';
 import { useAuth } from '../context/AuthContext';
-import ApiService from '../services/ApiService';
+import { colors, radius, t } from '../theme';
+import { cekEmail } from '../utils/validasi';
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Gradien layar Login dari Figma: 106.23deg, #0C447C 7.14% -> #378ADD 78.57%.
+const GRADIEN_LOGIN = { sudut: 106.23, warna: ['#0C447C', '#378ADD'], lokasi: [0.0714, 0.7857] };
 
 export default function LoginScreen({ navigation }) {
-  const { signIn, signInDemo } = useAuth();
+  const { signIn } = useAuth();
+  const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  const g = titikGradien(GRADIEN_LOGIN.sudut, width, height);
+  const refPassword = useRef(null);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [fieldErrors, setFieldErrors] = useState({});
-  const [errorMsg, setErrorMsg] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [galat, setGalat] = useState({});
+  const [pesan, setPesan] = useState('');
+  const [memuat, setMemuat] = useState(false);
 
-  function validate() {
-    const errs = {};
-    if (!email.trim()) {
-      errs.email = 'Email wajib diisi.';
-    } else if (!EMAIL_REGEX.test(email.trim())) {
-      errs.email = 'Format email tidak valid.';
-    }
-    if (!password) {
-      errs.password = 'Password wajib diisi.';
-    } else if (password.length < 6) {
-      errs.password = 'Password minimal 6 karakter.';
-    }
-    setFieldErrors(errs);
-    return Object.keys(errs).length === 0;
-  }
-
-  async function handleLogin() {
-    setErrorMsg('');
-    if (!validate()) return;
-    setSubmitting(true);
+  async function masuk() {
+    const g2 = { email: cekEmail(email), password: password ? null : 'Password wajib diisi' };
+    setGalat(g2);
+    setPesan('');
+    if (g2.email || g2.password) return;
+    setMemuat(true);
     try {
       await signIn(email, password);
     } catch (err) {
-      setErrorMsg(err.message || 'Gagal masuk ke akun.');
+      setPesan(err.status === 401 ? 'Email atau password salah.' : err.message);
     } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleDemoLogin() {
-    setErrorMsg('');
-    setFieldErrors({});
-    setSubmitting(true);
-    try {
-      await signInDemo();
-    } catch (err) {
-      setErrorMsg(err.message || 'Gagal login akun demo. Cek status server.');
-    } finally {
-      setSubmitting(false);
+      setMemuat(false);
     }
   }
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <View style={styles.hero}>
-          <Text style={styles.badge}>SMART CITY & MOBILITY · K01</Text>
-          <Text style={styles.title}>Lululala</Text>
-          <Text style={styles.subtitle}>
-            LintasSiaga — Pemantau kondisi jalan & penilaian risiko rute rutin komuter Kota Bandung.
-          </Text>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Masuk Akun Komuter</Text>
-
-          {errorMsg ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorBoxText}>{errorMsg}</Text>
+    <LinearGradient colors={GRADIEN_LOGIN.warna} locations={GRADIEN_LOGIN.lokasi} start={g.start} end={g.end} style={styles.layar}>
+      <BilahStatus gaya="light" />
+      <View style={[styles.ilustrasi, { top: insets.top + 60 }]} pointerEvents="none">
+        <SvgXml xml={ilustrasiRute} width={306} height={374} />
+      </View>
+      <KeyboardAvoidingView style={styles.layar} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={styles.gulir} keyboardShouldPersistTaps="handled" bounces={false}>
+          <View style={[styles.atas, { paddingTop: insets.top + 32 }]}>
+            <View style={styles.logo}>
+              <LogoTanda size={36} />
+              <Text style={t('extrabold', 20, colors.teks.terbalik)}>LintasSiaga</Text>
             </View>
-          ) : null}
-
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={[styles.input, fieldErrors.email && styles.inputError]}
-            placeholder="nama@email.com"
-            placeholderTextColor="#94A3B8"
-            autoCapitalize="none"
-            keyboardType="email-address"
-            value={email}
-            onChangeText={setEmail}
-            editable={!submitting}
-          />
-          {fieldErrors.email ? <Text style={styles.fieldError}>{fieldErrors.email}</Text> : null}
-
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={[styles.input, fieldErrors.password && styles.inputError]}
-            placeholder="Minimal 6 karakter"
-            placeholderTextColor="#94A3B8"
-            secureTextEntry
-            value={password}
-            onChangeText={setPassword}
-            editable={!submitting}
-          />
-          {fieldErrors.password ? <Text style={styles.fieldError}>{fieldErrors.password}</Text> : null}
-
-          <TouchableOpacity
-            style={[styles.primaryBtn, submitting && styles.btnDisabled]}
-            onPress={handleLogin}
-            disabled={submitting}
-          >
-            {submitting ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.primaryBtnText}>Masuk</Text>
-            )}
-          </TouchableOpacity>
-
-          <View style={styles.dividerRow}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>atau uji cepat</Text>
-            <View style={styles.dividerLine} />
+            <Text style={styles.judul}>Tahu rutemu aman{'\n'}sebelum berangkat.</Text>
+            <Text style={[t('medium', 13, colors.teks.terbalik), styles.sub]}>
+              Kondisi jalan dari warga, diperbarui tiap menit.
+            </Text>
           </View>
 
-          <TouchableOpacity
-            style={[styles.demoBtn, submitting && styles.btnDisabled]}
-            onPress={handleDemoLogin}
-            disabled={submitting}
-          >
-            <Text style={styles.demoBtnText}>Masuk Akun Demo (demo@lululala.id)</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.linkRow}
-            onPress={() => navigation.navigate('Daftar')}
-            disabled={submitting}
-          >
-            <Text style={styles.linkText}>
-              Belum punya akun? <Text style={styles.linkBold}>Daftar di sini</Text>
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.footerText}>API Server: {ApiService.baseUrl}</Text>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          <View style={[styles.lembar, { paddingBottom: 24 + insets.bottom }]}>
+            <View style={styles.kepala}>
+              <Text style={t('extrabold', 22, colors.teks.utama)}>Masuk</Text>
+              <Text style={t('medium', 13, colors.teks.sekunder)}>Lihat kondisi rutemu pagi ini.</Text>
+            </View>
+            <Input
+              label="Email"
+              Ikon={Mail}
+              placeholder="nama@email.com"
+              value={email}
+              onChangeText={setEmail}
+              galat={galat.email}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="next"
+              onSubmitEditing={() => refPassword.current?.focus()}
+            />
+            <Input
+              ref={refPassword}
+              label="Password"
+              Ikon={Lock}
+              placeholder="Password"
+              value={password}
+              onChangeText={setPassword}
+              galat={galat.password}
+              secureTextEntry
+              autoComplete="password"
+              textContentType="password"
+              returnKeyType="go"
+              onSubmitEditing={masuk}
+            />
+            {pesan ? (
+              <Text style={t('semibold', 12, colors.risiko.hindariTeks)} accessibilityRole="alert">
+                {pesan}
+              </Text>
+            ) : null}
+            <Tombol label="Masuk" onPress={masuk} memuat={memuat} />
+            <Pressable onPress={() => navigation.navigate('Daftar')} style={styles.keDaftar} accessibilityRole="link">
+              <Text style={t('medium', 13, colors.teks.sekunder)}>Belum punya akun?</Text>
+              <Text style={t('extrabold', 13, colors.brand.biru)}>Daftar</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: '#0F172A' },
-  container: { flexGrow: 1, justifyContent: 'center', padding: 20 },
-  hero: { marginBottom: 24 },
-  badge: {
-    color: '#38BDF8',
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-    marginBottom: 6,
+  layar: { flex: 1 },
+  ilustrasi: { position: 'absolute', left: 24 },
+  gulir: { flexGrow: 1, justifyContent: 'space-between' },
+  atas: { paddingHorizontal: 24, minHeight: 300 },
+  logo: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  judul: { ...t('extrabold', 28, colors.teks.terbalik), lineHeight: 33, letterSpacing: -0.56, marginTop: 24 },
+  sub: { marginTop: 10 },
+  lembar: {
+    backgroundColor: colors.permukaan.kartu,
+    borderTopLeftRadius: radius.header,
+    borderTopRightRadius: radius.header,
+    paddingTop: 26,
+    paddingHorizontal: 24,
+    gap: 14,
   },
-  title: { color: '#FFFFFF', fontSize: 34, fontWeight: '800' },
-  subtitle: { color: '#CBD5E1', fontSize: 14, marginTop: 6, lineHeight: 20 },
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  cardTitle: { fontSize: 19, fontWeight: '700', color: '#0F172A', marginBottom: 14 },
-  errorBox: {
-    backgroundColor: '#FEE2E2',
-    borderColor: '#FCA5A5',
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 12,
-  },
-  errorBoxText: { color: '#991B1B', fontSize: 13 },
-  label: { fontSize: 13, fontWeight: '600', color: '#334155', marginBottom: 6, marginTop: 8 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    fontSize: 15,
-    color: '#0F172A',
-    backgroundColor: '#F8FAFC',
-  },
-  inputError: { borderColor: '#DC2626' },
-  fieldError: { color: '#DC2626', fontSize: 12, marginTop: 4 },
-  primaryBtn: {
-    backgroundColor: '#0284C7',
-    borderRadius: 10,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 18,
-  },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  btnDisabled: { opacity: 0.65 },
-  dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 16 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#E2E8F0' },
-  dividerText: { marginHorizontal: 10, color: '#64748B', fontSize: 12 },
-  demoBtn: {
-    backgroundColor: '#F1F5F9',
-    borderColor: '#CBD5E1',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 13,
-    alignItems: 'center',
-  },
-  demoBtnText: { color: '#0F172A', fontSize: 14, fontWeight: '600' },
-  linkRow: { marginTop: 18, alignItems: 'center' },
-  linkText: { color: '#475569', fontSize: 14 },
-  linkBold: { color: '#0284C7', fontWeight: '700' },
-  footerText: { color: '#64748B', fontSize: 11, textAlign: 'center', marginTop: 20 },
+  kepala: { gap: 4 },
+  keDaftar: { flexDirection: 'row', justifyContent: 'center', gap: 4 },
 });
