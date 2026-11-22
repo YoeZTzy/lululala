@@ -20,9 +20,9 @@ export default function Tombol({ gaya = 'Utama', label, Ikon, onPress, disabled,
       style={({ pressed }) => [
         styles.dasar,
         { backgroundColor: g.bg },
-        gaya === 'Utama' && styles.bayanganUtama,
         gaya === 'Sekunder' && styles.garisSekunder,
-        (pressed || mati) && { opacity: mati ? 0.6 : 0.85 },
+        // Bayangan hanya saat tombol opak: di Android elevation di bawah tombol semi-transparan tampak sebagai kotak abu-abu.
+        pressed || mati ? { opacity: mati ? 0.6 : 0.85 } : gaya === 'Utama' && styles.bayanganUtama,
         style,
       ]}
     >

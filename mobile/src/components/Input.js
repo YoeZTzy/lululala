@@ -56,9 +56,10 @@ export default Input;
 
 const styles = StyleSheet.create({
   wadah: { gap: 6 },
-  // Cincin fokus 4px rgba(24,95,165,0.16) di luar kolom, tanpa menggeser tata letak.
-  cincin: { margin: -4, padding: 4, borderRadius: radius.input + 4 },
-  cincinFokus: { backgroundColor: 'rgba(24,95,165,0.16)' },
+  // Cincin fokus Figma (shadow spread 4px rgba(24,95,165,0.16)) dibuat sebagai border 4px pembungkus,
+  // tanpa latar/shadow/elevation agar Android tidak merender kotak abu-abu. margin -4 = tata letak tetap.
+  cincin: { margin: -4, borderWidth: 4, borderColor: 'transparent', borderRadius: radius.input + 4 },
+  cincinFokus: { borderColor: 'rgba(24,95,165,0.16)' },
   kolom: {
     height: 44,
     flexDirection: 'row',
