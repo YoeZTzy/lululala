@@ -1,14 +1,15 @@
 import sqlite3
 import json
 import math
+import re
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import List, Literal, Optional, Union
 from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.config import DATA_DIR
 from app.shared.event_bus import event_bus
 from app.modules.iam.router import get_current_user, require_api_key
-from app.modules.monitoring.router import get_db as get_monitoring_db
+from app.modules.monitoring.router import get_db as get_monitoring_db, refresh_active_hazards
 
 router = APIRouter(prefix="/api", tags=["Risiko Perjalanan"])
 DB_PATH = DATA_DIR / "risk.db"
@@ -43,7 +44,7 @@ def evaluate_route_risk(
     segments: Optional[list] = None,
 ) -> dict:
     with get_monitoring_db() as mconn:
-        hazards = mconn.execute("SELECT * FROM hazards WHERE status = 'Aktif'").fetchall()
+        hazards = [h for h in refresh_active_hazards(mconn) if h["status"] == "Aktif"]
         w = mconn.execute("SELECT weather_factor FROM weather_factors ORDER BY id DESC LIMIT 1").fetchone()
         weather_factor = w["weather_factor"] if w else 0.0
 
@@ -174,6 +175,11 @@ def init_risk_db():
                 created_at TEXT NOT NULL
             );
         """)
+        # Migrasi tanpa merusak data lama: label asal/tujuan opsional untuk tampilan aplikasi.
+        route_cols = {r[1] for r in conn.execute("PRAGMA table_info(commute_routes)")}
+        for col in ("origin_label", "dest_label"):
+            if col not in route_cols:
+                conn.execute(f"ALTER TABLE commute_routes ADD COLUMN {col} TEXT")
 
         # Seed rute rutin contoh untuk akun demo@lululala.id (user_id=1) jika kosong
         r_count = conn.execute("SELECT COUNT(*) FROM commute_routes").fetchone()[0]
@@ -218,6 +224,50 @@ def init_risk_db():
                 _record_alert_if_needed(conn, route_data[0], rid, route_data[1], result)
 
 
+DAY_CODES = ["sen", "sel", "rab", "kam", "jum", "sab", "min"]
+DAY_NAMES = {
+    "senin": "sen", "selasa": "sel", "rabu": "rab", "kamis": "kam",
+    "jumat": "jum", "jum'at": "jum", "sabtu": "sab", "minggu": "min",
+}
+
+
+def _day_code(token: str) -> Optional[str]:
+    t = token.strip().lower()
+    return t if t in DAY_CODES else DAY_NAMES.get(t)
+
+
+def parse_days(text: str) -> List[str]:
+    """Teks hari (format baru 'sen,sel' atau lama 'Senin-Jumat', 'Sabtu') -> daftar kode berurutan."""
+    t = (text or "").strip().lower()
+    if t in ("setiap hari", "tiap hari", "harian"):
+        return DAY_CODES[:]
+    found = set()
+    for part in re.split(r"[,/]", t):
+        if not part.strip():
+            continue
+        ends = re.split(r"\s*[-–]\s*", part.strip(), maxsplit=1)
+        if len(ends) == 2:
+            a, b = _day_code(ends[0]), _day_code(ends[1])
+            if a and b:
+                i, j = DAY_CODES.index(a), DAY_CODES.index(b)
+                span = range(i, j + 1) if i <= j else list(range(i, 7)) + list(range(0, j + 1))
+                found.update(DAY_CODES[k] for k in span)
+        else:
+            code = _day_code(ends[0])
+            if code:
+                found.add(code)
+    return [c for c in DAY_CODES if c in found]
+
+
+def _commute_out(row, with_risk: bool = False) -> dict:
+    d = dict(row)
+    d["days_list"] = parse_days(d["days"])
+    if with_risk:
+        segments = json.loads(d["segments_json"]) if d["segments_json"] else None
+        d["risk"] = evaluate_route_risk(d["origin_lat"], d["origin_lon"], d["dest_lat"], d["dest_lon"], segments)
+    return d
+
+
 class SegmentPoint(BaseModel):
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
@@ -229,9 +279,25 @@ class CommuteReq(BaseModel):
     origin_lon: float = Field(ge=-180, le=180)
     dest_lat: float = Field(ge=-90, le=90)
     dest_lon: float = Field(ge=-180, le=180)
-    days: str = Field(default="Senin-Jumat", min_length=2, max_length=60)
+    # Format baru: daftar kode hari ["sen","sel",...]; format lama: teks bebas (mis. "Senin-Jumat").
+    days: Union[List[Literal["sen", "sel", "rab", "kam", "jum", "sab", "min"]], str] = "Senin-Jumat"
     departure_time: str = Field(default="06:45", min_length=4, max_length=10)
     segments: Optional[List[SegmentPoint]] = None
+    origin_label: Optional[str] = Field(default=None, max_length=80)
+    dest_label: Optional[str] = Field(default=None, max_length=80)
+
+    @field_validator("days")
+    @classmethod
+    def normalize_days(cls, v):
+        if isinstance(v, list):
+            if not v:
+                raise ValueError("Pilih minimal satu hari")
+            chosen = set(v)
+            return ",".join(c for c in DAY_CODES if c in chosen)
+        v = v.strip()
+        if not 2 <= len(v) <= 60:
+            raise ValueError("days harus 2-60 karakter")
+        return v
 
 
 class RouteRiskPostReq(BaseModel):
@@ -243,13 +309,21 @@ class RouteRiskPostReq(BaseModel):
 
 
 @router.get("/commutes", summary="Daftar rute rutin milik pengguna login")
-def list_commutes(user: dict = Depends(get_current_user)):
+def list_commutes(
+    include_risk: bool = Query(False, description="true = sertakan ringkasan risiko per rute"),
+    user: dict = Depends(get_current_user),
+):
     with get_db() as conn:
         rows = conn.execute(
             "SELECT * FROM commute_routes WHERE user_id = ? ORDER BY id DESC",
             (user["user_id"],),
         ).fetchall()
-    return {"total": len(rows), "items": [dict(r) for r in rows]}
+    return {"total": len(rows), "items": [_commute_out(r, include_risk) for r in rows]}
+
+
+def count_user_commutes(user_id: int) -> int:
+    with get_db() as conn:
+        return conn.execute("SELECT COUNT(*) FROM commute_routes WHERE user_id = ?", (user_id,)).fetchone()[0]
 
 
 @router.post("/commutes", status_code=201, summary="Simpan rute rutin baru")
@@ -259,8 +333,9 @@ def create_commute(body: CommuteReq, user: dict = Depends(get_current_user)):
         cur = conn.execute(
             """
             INSERT INTO commute_routes
-            (user_id, name, origin_lat, origin_lon, dest_lat, dest_lon, days, departure_time, segments_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (user_id, name, origin_lat, origin_lon, dest_lat, dest_lon, days, departure_time, segments_json,
+             origin_label, dest_label)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user["user_id"],
@@ -272,10 +347,12 @@ def create_commute(body: CommuteReq, user: dict = Depends(get_current_user)):
                 body.days.strip(),
                 body.departure_time.strip(),
                 seg_json,
+                (body.origin_label or "").strip() or None,
+                (body.dest_label or "").strip() or None,
             ),
         )
         row = conn.execute("SELECT * FROM commute_routes WHERE id = ?", (cur.lastrowid,)).fetchone()
-    return dict(row)
+    return _commute_out(row)
 
 
 @router.put("/commutes/{commute_id}", summary="Perbarui rute rutin milik sendiri")
@@ -291,7 +368,8 @@ def update_commute(commute_id: int, body: CommuteReq, user: dict = Depends(get_c
         conn.execute(
             """
             UPDATE commute_routes
-            SET name=?, origin_lat=?, origin_lon=?, dest_lat=?, dest_lon=?, days=?, departure_time=?, segments_json=?
+            SET name=?, origin_lat=?, origin_lon=?, dest_lat=?, dest_lon=?, days=?, departure_time=?, segments_json=?,
+                origin_label=?, dest_label=?
             WHERE id=?
             """,
             (
@@ -303,11 +381,13 @@ def update_commute(commute_id: int, body: CommuteReq, user: dict = Depends(get_c
                 body.days.strip(),
                 body.departure_time.strip(),
                 seg_json,
+                (body.origin_label or "").strip() or None,
+                (body.dest_label or "").strip() or None,
                 commute_id,
             ),
         )
         row = conn.execute("SELECT * FROM commute_routes WHERE id = ?", (commute_id,)).fetchone()
-    return dict(row)
+    return _commute_out(row)
 
 
 @router.delete("/commutes/{commute_id}", summary="Hapus rute rutin milik sendiri")

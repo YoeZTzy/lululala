@@ -1,115 +1,109 @@
 import React from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { ActivityIndicator, View } from 'react-native';
+import { NavigationContainer, DefaultTheme, getFocusedRouteNameFromRoute } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useAuth } from '../context/AuthContext';
+import { TabBar } from '../components';
+import { colors } from '../theme';
 import LoginScreen from '../screens/LoginScreen';
-import RegisterScreen from '../screens/RegisterScreen';
-import HomeScreen from '../screens/HomeScreen';
-import ReportsScreen from '../screens/ReportsScreen';
-import CommutesScreen from '../screens/CommutesScreen';
-import ProfileScreen from '../screens/ProfileScreen';
+import DaftarScreen from '../screens/DaftarScreen';
+import BerandaScreen from '../screens/BerandaScreen';
+import TambahRuteScreen from '../screens/TambahRuteScreen';
+import PilihLokasiScreen from '../screens/PilihLokasiScreen';
+import DetailRuteScreen from '../screens/DetailRuteScreen';
+import PetaScreen from '../screens/PetaScreen';
+import DetailTitikRawanScreen from '../screens/DetailTitikRawanScreen';
+import LaporScreen from '../screens/LaporScreen';
+import ProfilScreen from '../screens/ProfilScreen';
+import LaporanTerkirimModal from '../screens/LaporanTerkirimModal';
 
-const Stack = createNativeStackNavigator();
+const Root = createNativeStackNavigator();
+const Auth = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+const BerandaNav = createNativeStackNavigator();
+const PetaNav = createNativeStackNavigator();
 
-function AuthStack() {
+const tanpaHeader = { headerShown: false, contentStyle: { backgroundColor: colors.permukaan.latar } };
+
+// Layar detail di dalam tab: tab bar disembunyikan.
+const LAYAR_TANPA_TAB = ['TambahRute', 'PilihLokasi', 'DetailRute', 'DetailTitikRawan'];
+
+function opsiTab(route) {
+  const nama = getFocusedRouteNameFromRoute(route);
+  return { tabBarStyle: LAYAR_TANPA_TAB.includes(nama) ? { display: 'none' } : undefined };
+}
+
+function BerandaStack() {
   return (
-    <Stack.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: '#0F172A' },
-        headerTintColor: '#FFFFFF',
-        headerShadowVisible: false,
-      }}
-    >
-      <Stack.Screen
-        name="Login"
-        component={LoginScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
-        name="Register"
-        component={RegisterScreen}
-        options={{ title: 'Daftar Akun' }}
-      />
-    </Stack.Navigator>
+    <BerandaNav.Navigator screenOptions={tanpaHeader}>
+      <BerandaNav.Screen name="Beranda" component={BerandaScreen} />
+      <BerandaNav.Screen name="TambahRute" component={TambahRuteScreen} />
+      <BerandaNav.Screen name="PilihLokasi" component={PilihLokasiScreen} />
+      <BerandaNav.Screen name="DetailRute" component={DetailRuteScreen} />
+      <BerandaNav.Screen name="DetailTitikRawan" component={DetailTitikRawanScreen} />
+    </BerandaNav.Navigator>
+  );
+}
+
+function PetaStack() {
+  return (
+    <PetaNav.Navigator screenOptions={tanpaHeader}>
+      <PetaNav.Screen name="Peta" component={PetaScreen} />
+      <PetaNav.Screen name="DetailTitikRawan" component={DetailTitikRawanScreen} />
+    </PetaNav.Navigator>
   );
 }
 
 function MainTabs() {
   return (
-    <Tab.Navigator
-      screenOptions={{
-        headerStyle: { backgroundColor: '#0F172A' },
-        headerTintColor: '#FFFFFF',
-        tabBarActiveTintColor: '#0284C7',
-        tabBarInactiveTintColor: '#64748B',
-        tabBarStyle: { height: 62, paddingBottom: 8, paddingTop: 6 },
-      }}
-    >
-      <Tab.Screen
-        name="Home"
-        component={HomeScreen}
-        options={{
-          title: 'Beranda',
-          headerTitle: 'Lululala · Beranda',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 18, color }}>🏠</Text>,
-        }}
-      />
-      <Tab.Screen
-        name="Reports"
-        component={ReportsScreen}
-        options={{
-          title: 'Laporan',
-          headerTitle: 'Laporan Kondisi Jalan',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 18, color }}>📢</Text>,
-        }}
-      />
-      <Tab.Screen
-        name="Commutes"
-        component={CommutesScreen}
-        options={{
-          title: 'Rute Rutin',
-          headerTitle: 'Rute Rutin & Risiko',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 18, color }}>🛣️</Text>,
-        }}
-      />
-      <Tab.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{
-          title: 'Profil',
-          headerTitle: 'Profil & Koneksi',
-          tabBarIcon: ({ color }) => <Text style={{ fontSize: 18, color }}>👤</Text>,
-        }}
-      />
+    <Tab.Navigator tabBar={(props) => <TabBar {...props} />} screenOptions={{ headerShown: false }}>
+      <Tab.Screen name="BerandaTab" component={BerandaStack} options={({ route }) => opsiTab(route)} />
+      <Tab.Screen name="PetaTab" component={PetaStack} options={({ route }) => opsiTab(route)} />
+      <Tab.Screen name="LaporTab" component={LaporScreen} />
+      <Tab.Screen name="ProfilTab" component={ProfilScreen} />
     </Tab.Navigator>
   );
 }
+
+function AuthStack() {
+  return (
+    <Auth.Navigator screenOptions={tanpaHeader}>
+      <Auth.Screen name="Login" component={LoginScreen} />
+      <Auth.Screen name="Daftar" component={DaftarScreen} />
+    </Auth.Navigator>
+  );
+}
+
+const tema = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.permukaan.latar } };
 
 export default function AppNavigator() {
   const { isAuthenticated, initializing } = useAuth();
 
   if (initializing) {
     return (
-      <View
-        style={{
-          flex: 1,
-          justifyContent: 'center',
-          alignItems: 'center',
-          backgroundColor: '#0F172A',
-        }}
-      >
-        <ActivityIndicator size="large" color="#38BDF8" />
-        <Text style={{ color: '#CBD5E1', marginTop: 12 }}>Memuat Lululala...</Text>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.permukaan.latar }}>
+        <ActivityIndicator size="large" color={colors.brand.biru} />
       </View>
     );
   }
 
   return (
-    <NavigationContainer>
-      {isAuthenticated ? <MainTabs /> : <AuthStack />}
+    <NavigationContainer theme={tema}>
+      <Root.Navigator screenOptions={{ headerShown: false }}>
+        {isAuthenticated ? (
+          <>
+            <Root.Screen name="Main" component={MainTabs} />
+            <Root.Screen
+              name="LaporanTerkirim"
+              component={LaporanTerkirimModal}
+              options={{ presentation: 'transparentModal', animation: 'fade' }}
+            />
+          </>
+        ) : (
+          <Root.Screen name="Auth" component={AuthStack} />
+        )}
+      </Root.Navigator>
     </NavigationContainer>
   );
 }

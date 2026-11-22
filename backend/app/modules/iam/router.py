@@ -99,6 +99,15 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Token JWT tidak valid atau kedaluwarsa")
 
 
+def get_optional_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
+) -> Optional[dict]:
+    """JWT opsional: None bila tidak ada token; token yang dikirim tetap harus valid."""
+    if not credentials:
+        return None
+    return get_current_user(credentials)
+
+
 def require_api_key(x_api_key: Optional[str] = Security(api_key_scheme)) -> str:
     if not x_api_key or x_api_key not in PARTNER_API_KEYS:
         raise HTTPException(status_code=401, detail="API key mitra tidak valid")

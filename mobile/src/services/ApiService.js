@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { PESAN_422_UMUM, petakanGalat422 } from '../utils/galatApi';
 
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL || 'https://lululala.stei.fun/api';
@@ -6,12 +7,27 @@ export const API_BASE_URL =
 const REQUEST_TIMEOUT_MS = 10000;
 
 export class ApiError extends Error {
-  constructor(message, status = 0, isNetworkError = false) {
+  constructor(message, status = 0, isNetworkError = false, fields = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.isNetworkError = isNetworkError;
+    this.fields = fields; // 422: { namaField: 'pesan Indonesia' }
   }
+}
+
+// Detail bawaan FastAPI/Starlette (Inggris) -> pesan Indonesia. Detail buatan backend sudah berbahasa Indonesia.
+const DETAIL_BAWAAN = {
+  'Not Found': 'Fitur ini belum tersedia di server. Coba lagi nanti.',
+  'Method Not Allowed': 'Fitur ini belum tersedia di server. Coba lagi nanti.',
+  'Internal Server Error': 'Server sedang bermasalah. Coba lagi sebentar lagi.',
+  'There was an error parsing the body': 'Data yang dikirim tidak terbaca. Coba lagi.',
+};
+
+// Dipanggil saat server menolak token (401) pada permintaan yang membawa token: AuthContext memasang signOut di sini.
+let onUnauthorized = null;
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn;
 }
 
 async function request(path, { method = 'GET', body, token, headers = {} } = {}) {
@@ -48,16 +64,25 @@ async function request(path, { method = 'GET', body, token, headers = {} } = {})
     }
 
     if (!response.ok) {
+      if (response.status === 401 && token && onUnauthorized) {
+        onUnauthorized();
+        throw new ApiError('Sesi berakhir. Silakan masuk lagi.', 401, false);
+      }
+      if (response.status === 422) {
+        const { fields, message } = petakanGalat422(data?.detail);
+        throw new ApiError(message, 422, false, fields);
+      }
       const detail =
         (data && (data.detail || data.message)) ||
         (response.status === 404
-          ? 'Endpoint tidak ditemukan (404). Pastikan microservice STB aktif.'
+          ? 'Data tidak ditemukan.'
           : response.status === 429
             ? 'Terlalu banyak permintaan. Coba beberapa saat lagi.'
             : `Permintaan gagal (HTTP ${response.status}).`);
       const readableDetail = Array.isArray(detail)
-        ? detail.map((d) => d.msg || String(d)).join(', ')
-        : String(detail);
+        ? PESAN_422_UMUM
+        : DETAIL_BAWAAN[String(detail)] ||
+          (response.status >= 500 ? 'Server sedang bermasalah. Coba lagi sebentar lagi.' : String(detail));
       throw new ApiError(readableDetail, response.status, false);
     }
 
@@ -68,13 +93,13 @@ async function request(path, { method = 'GET', body, token, headers = {} } = {})
     }
     if (err && err.name === 'AbortError') {
       throw new ApiError(
-        'Koneksi ke server Lululala melewati batas waktu (10 detik).',
+        'Server terlalu lama merespons. Coba lagi sebentar lagi.',
         0,
         true
       );
     }
     throw new ApiError(
-      'Tidak dapat terhubung ke server Lululala. Periksa koneksi internet atau status STB.',
+      'Tidak bisa terhubung. Periksa koneksi internetmu.',
       0,
       true
     );
@@ -83,10 +108,15 @@ async function request(path, { method = 'GET', body, token, headers = {} } = {})
   }
 }
 
-async function saveCache(cacheKey, data) {
+const AWALAN_CACHE = '@lululala_cache_';
+// Naik tiap cache dikosongkan (keluar akun): respons sesi lama yang masih di jalan tidak menulis ulang cache.
+let generasiCache = 0;
+
+async function saveCache(cacheKey, data, generasi) {
+  if (generasi !== generasiCache) return;
   try {
     const payload = JSON.stringify({ data, cachedAt: new Date().toISOString() });
-    await AsyncStorage.setItem(`@lululala_cache_${cacheKey}`, payload);
+    await AsyncStorage.setItem(`${AWALAN_CACHE}${cacheKey}`, payload);
   } catch {
     // Abaikan kegagalan penulisan cache agar aplikasi tidak crash
   }
@@ -94,7 +124,7 @@ async function saveCache(cacheKey, data) {
 
 async function loadCache(cacheKey) {
   try {
-    const raw = await AsyncStorage.getItem(`@lululala_cache_${cacheKey}`);
+    const raw = await AsyncStorage.getItem(`${AWALAN_CACHE}${cacheKey}`);
     if (!raw) return null;
     return JSON.parse(raw);
   } catch {
@@ -103,9 +133,10 @@ async function loadCache(cacheKey) {
 }
 
 async function fetchWithCache(cacheKey, fetcher) {
+  const generasi = generasiCache;
   try {
     const data = await fetcher();
-    await saveCache(cacheKey, data);
+    await saveCache(cacheKey, data, generasi);
     return { data, fromCache: false, cachedAt: null, error: null };
   } catch (err) {
     const cached = await loadCache(cacheKey);
@@ -145,8 +176,15 @@ const ApiService = {
     });
   },
 
-  getMe(token) {
-    return request('/auth/me', { token });
+  // GET /api/me = profil + stats {reports, votes, commutes}.
+  // shortcut: server yang belum diperbarui tidak punya /me (404) -> profil dari /auth/me tanpa stats; hapus setelah deploy.
+  async getMe(token) {
+    try {
+      return await request('/me', { token });
+    } catch (err) {
+      if (err.status !== 404) throw err;
+      return request('/auth/me', { token });
+    }
   },
 
   // Monitoring
@@ -157,6 +195,17 @@ const ApiService = {
   getHazards(bbox) {
     const qs = bbox ? `?bbox=${encodeURIComponent(bbox)}` : '';
     return fetchWithCache('hazards', () => request(`/hazards${qs}`));
+  },
+
+  getHazard(token, hazardId) {
+    return request(`/hazards/${hazardId}`, { token });
+  },
+
+  // Disaring is_mine juga di app: backend lama mengabaikan ?mine=true dan mengembalikan laporan semua warga.
+  async getMyReports(token) {
+    const hasil = await fetchWithCache('my_reports', () => request('/reports?mine=true', { token }));
+    const items = (hasil.data?.items || []).filter((r) => r.is_mine);
+    return { ...hasil, data: { ...hasil.data, items, total: items.length } };
   },
 
   getReports(token, bbox) {
@@ -177,8 +226,9 @@ const ApiService = {
   },
 
   // Risk & Commutes
-  getCommutes(token) {
-    return fetchWithCache('commutes', () => request('/commutes', { token }));
+  getCommutes(token, { includeRisk = false } = {}) {
+    const qs = includeRisk ? '?include_risk=true' : '';
+    return fetchWithCache(`commutes${qs ? '_risk' : ''}`, () => request(`/commutes${qs}`, { token }));
   },
 
   createCommute(token, payload) {
@@ -201,10 +251,67 @@ const ApiService = {
     return fetchWithCache('alerts', () => request('/alerts', { token }));
   },
 
+  // Hapus semua cache offline (@lululala_cache_*), termasuk key yang tidak terdaftar di sini.
   async clearOfflineCache() {
-    const keys = ['summary', 'hazards', 'reports', 'commutes', 'alerts'];
-    await AsyncStorage.multiRemove(keys.map((k) => `@lululala_cache_${k}`));
+    generasiCache += 1;
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(AWALAN_CACHE));
+    if (keys.length) await AsyncStorage.multiRemove(keys);
   },
 };
+
+// ---------------------------------------------------------------------------
+// API kelompok lain (Health & Tourism). URL & key dari env Expo:
+//   EXPO_PUBLIC_HEALTH_API_URL, EXPO_PUBLIC_HEALTH_API_KEY
+//   EXPO_PUBLIC_TOURISM_API_URL, EXPO_PUBLIC_TOURISM_API_KEY
+// Bila URL kosong, fungsi mengembalikan data contoh (mock) agar UI tetap bisa dikembangkan.
+// ---------------------------------------------------------------------------
+const HEALTH_API_URL = process.env.EXPO_PUBLIC_HEALTH_API_URL || '';
+const HEALTH_API_KEY = process.env.EXPO_PUBLIC_HEALTH_API_KEY || '';
+const TOURISM_API_URL = process.env.EXPO_PUBLIC_TOURISM_API_URL || '';
+const TOURISM_API_KEY = process.env.EXPO_PUBLIC_TOURISM_API_KEY || '';
+
+const MOCK_FASKES = [
+  { id: 'mock-1', nama: 'RS Contoh Bandung', jenis: 'rumah_sakit', lat: -6.8949, lon: 107.6105 },
+  { id: 'mock-2', nama: 'Puskesmas Contoh', jenis: 'puskesmas', lat: -6.9175, lon: 107.6191 },
+];
+
+const MOCK_DESTINASI = [
+  { id: 'mock-1', nama: 'Destinasi Contoh A', kategori: 'taman', lat: -6.9025, lon: 107.6187 },
+  { id: 'mock-2', nama: 'Destinasi Contoh B', kategori: 'museum', lat: -6.9218, lon: 107.6071 },
+];
+
+async function requestMitra(baseUrl, apiKey, path) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}${path}`, {
+      headers: { Accept: 'application/json', ...(apiKey ? { 'X-API-Key': apiKey } : {}) },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new ApiError(`Layanan mitra gagal (HTTP ${res.status}).`, res.status, false);
+    return await res.json();
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError('Layanan mitra tidak bisa dihubungi.', 0, true);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+// Fasilitas kesehatan dari kelompok Health.
+// TODO: sesuaikan path & bentuk respons dengan dokumentasi API kelompok Health setelah tersedia.
+export function getFaskes({ lat, lon } = {}) {
+  if (!HEALTH_API_URL) return Promise.resolve({ items: MOCK_FASKES, mock: true });
+  const qs = lat != null && lon != null ? `?lat=${lat}&lon=${lon}` : '';
+  return requestMitra(HEALTH_API_URL, HEALTH_API_KEY, `/faskes${qs}`);
+}
+
+// Destinasi wisata dari kelompok Tourism.
+// TODO: sesuaikan path & bentuk respons dengan dokumentasi API kelompok Tourism setelah tersedia.
+export function getDestinasi({ lat, lon } = {}) {
+  if (!TOURISM_API_URL) return Promise.resolve({ items: MOCK_DESTINASI, mock: true });
+  const qs = lat != null && lon != null ? `?lat=${lat}&lon=${lon}` : '';
+  return requestMitra(TOURISM_API_URL, TOURISM_API_KEY, `/destinasi${qs}`);
+}
 
 export default ApiService;

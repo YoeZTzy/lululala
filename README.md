@@ -28,21 +28,22 @@ lululala/
 │   ├── docker-compose.yml
 │   ├── requirements.txt
 │   └── .env.example
-└── mobile/                 # React Native (Expo) App
-    ├── App.js
+└── mobile/                 # React Native (Expo SDK 58) App, desain Hi-Fi Figma "LintasSiaga"
+    ├── App.js              # memuat font Plus Jakarta Sans
     ├── app.json
+    ├── PLAN_HIFI.md        # rencana & keputusan desain Hi-Fi
+    ├── scripts/cek-utils.mjs
     └── src/
-        ├── constants/bandungPresets.js
-        ├── context/AuthContext.js
+        ├── theme/          # token warna Figma, tipografi, spacing, radius
+        ├── components/     # komponen Figma: Input, Tombol, Chip, Badge, TabBar, KartuRute, Penanda, ...
+        ├── assets/svg/     # aset SVG dari Figma (logo, tekstur header, penanda)
+        ├── context/AuthContext.js   # sesi JWT di expo-secure-store, logout otomatis 401
         ├── navigation/AppNavigator.js
-        ├── services/ApiService.js
-        └── screens/
-            ├── LoginScreen.js
-            ├── RegisterScreen.js
-            ├── HomeScreen.js
-            ├── ReportsScreen.js
-            ├── CommutesScreen.js
-            └── ProfileScreen.js
+        ├── services/ApiService.js   # microservice + API kelompok Health/Tourism
+        ├── hooks/useMuat.js
+        ├── utils/          # jadwal, geo, cuaca, waktu, lokasi, validasi
+        └── screens/        # Login, Daftar, Beranda, TambahRute, DetailRute, Peta,
+                            # DetailTitikRawan, Lapor, LaporanTerkirimModal, Profil
 ```
 
 ## Menjalankan Backend
@@ -69,3 +70,13 @@ npm install
 npx expo start
 ```
 Scan QR Code memakai aplikasi **Expo Go** di HP. Secara default, aplikasi terhubung ke `https://lululala.stei.fun/api` (dapat dioverride lewat environment variable `EXPO_PUBLIC_API_URL`).
+
+Variabel lingkungan opsional (buat `mobile/.env.local`, jangan di-commit):
+
+| Variabel | Fungsi |
+|---|---|
+| `EXPO_PUBLIC_API_URL` | Base URL microservice, mis. `http://192.168.1.10:8080/api` untuk backend lokal |
+| `EXPO_PUBLIC_HEALTH_API_URL`, `EXPO_PUBLIC_HEALTH_API_KEY` | API kelompok Health (`getFaskes()`); kosong = data contoh |
+| `EXPO_PUBLIC_TOURISM_API_URL`, `EXPO_PUBLIC_TOURISM_API_KEY` | API kelompok Tourism (`getDestinasi()`); kosong = data contoh |
+
+Cek util tanpa perangkat: `node mobile/scripts/cek-utils.mjs`.

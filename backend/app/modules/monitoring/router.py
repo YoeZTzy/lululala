@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 from app.config import DATA_DIR
 from app.shared.event_bus import event_bus
-from app.modules.iam.router import get_current_user, require_internal_key, optional_api_key
+from app.modules.iam.router import get_current_user, get_optional_user, require_internal_key, optional_api_key
 
 router = APIRouter(prefix="/api", tags=["Pemantauan Kondisi Jalan"])
 DB_PATH = DATA_DIR / "monitoring.db"
@@ -31,6 +31,23 @@ def compute_effective_score(row) -> float:
     age_hours = max(0.0, (datetime.now(timezone.utc) - created).total_seconds() / 3600.0)
     # Peluruhan seiring waktu (-0.08 per jam)
     return round(max(0.0, min(1.0, row["confidence_score"] - 0.08 * age_hours)), 3)
+
+
+def cluster_score(cluster) -> float:
+    """Skor TitikRawan dari laporan anggota: skor efektif tertinggi + bonus kolaboratif."""
+    effective_scores = [compute_effective_score(r) for r in cluster]
+    max_score = max(effective_scores)
+    # Bonus kolaboratif bila >= 2 laporan berbeda di radius <= 300 m
+    multi_report_bonus = min(0.20, 0.10 * (len(cluster) - 1)) if len(cluster) > 1 and max_score >= 0.35 else 0.0
+    return round(min(1.0, max_score + multi_report_bonus), 3)
+
+
+def status_for_score(score: float) -> str:
+    if score >= 0.60:
+        return "Aktif"
+    if score >= 0.35:
+        return "Mereda"
+    return "Selesai"
 
 
 def anonymize_expired_reports(conn) -> None:
@@ -76,21 +93,14 @@ def sync_hazard_from_report(conn, report_row) -> List[Tuple[str, dict]]:
     if not cluster:
         cluster = [report_row]
 
-    effective_scores = [compute_effective_score(r) for r in cluster]
-    max_score = max(effective_scores)
-    # Bonus kolaboratif bila >= 2 laporan berbeda di radius <= 300 m
-    multi_report_bonus = min(0.20, 0.10 * (len(cluster) - 1)) if len(cluster) > 1 and max_score >= 0.35 else 0.0
-    cluster_score = round(min(1.0, max_score + multi_report_bonus), 3)
+    score = cluster_score(cluster)
     max_severity = max(r["severity"] for r in cluster)
     report_count = len(cluster)
+    hazard_id = None
 
     if matched:
-        if cluster_score >= 0.60:
-            new_status = "Aktif"
-        elif cluster_score >= 0.35:
-            new_status = "Mereda"
-        else:
-            new_status = "Selesai"
+        new_status = status_for_score(score)
+        hazard_id = matched["id"]
 
         conn.execute(
             """
@@ -98,7 +108,7 @@ def sync_hazard_from_report(conn, report_row) -> List[Tuple[str, dict]]:
             SET confidence_score = ?, severity = ?, status = ?, report_count = ?, updated_at = ?
             WHERE id = ?
             """,
-            (cluster_score, max_severity, new_status, report_count, now_iso, matched["id"]),
+            (score, max_severity, new_status, report_count, now_iso, matched["id"]),
         )
         pending_events.append((
             f"TitikRawan{new_status}",
@@ -109,10 +119,10 @@ def sync_hazard_from_report(conn, report_row) -> List[Tuple[str, dict]]:
                 "lat": matched["lat"],
                 "lon": matched["lon"],
                 "status": new_status,
-                "confidence_score": cluster_score,
+                "confidence_score": score,
             },
         ))
-    elif cluster_score >= 0.60:
+    elif score >= 0.60:
         cur = conn.execute(
             """
             INSERT INTO hazards (incident_type, severity, lat, lon, confidence_score, status, report_count, updated_at)
@@ -123,11 +133,12 @@ def sync_hazard_from_report(conn, report_row) -> List[Tuple[str, dict]]:
                 max_severity,
                 report_row["lat"],
                 report_row["lon"],
-                cluster_score,
+                score,
                 report_count,
                 now_iso,
             ),
         )
+        hazard_id = cur.lastrowid
         pending_events.append((
             "TitikRawanAktif",
             {
@@ -137,11 +148,72 @@ def sync_hazard_from_report(conn, report_row) -> List[Tuple[str, dict]]:
                 "lat": report_row["lat"],
                 "lon": report_row["lon"],
                 "status": "Aktif",
-                "confidence_score": cluster_score,
+                "confidence_score": score,
             },
         ))
 
+    if hazard_id is not None:
+        # Simpan keanggotaan laporan pada TitikRawan (dipakai detail & peluruhan).
+        conn.executemany(
+            "UPDATE reports SET hazard_id = ? WHERE id = ?",
+            [(hazard_id, r["id"]) for r in cluster],
+        )
+
     return pending_events
+
+
+def hazard_members(conn, hazard, active_only: bool = True) -> list:
+    """Laporan anggota TitikRawan, terbaru dulu."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    assigned = conn.execute("SELECT COUNT(*) FROM reports WHERE hazard_id = ?", (hazard["id"],)).fetchone()[0]
+    if assigned:
+        sql = "SELECT * FROM reports WHERE hazard_id = ?"
+        params: list = [hazard["id"]]
+        if active_only:
+            sql += " AND expires_at > ?"
+            params.append(now_iso)
+        return conn.execute(sql + " ORDER BY created_at DESC", params).fetchall()
+    # Data lama (sebelum kolom hazard_id): anggota = laporan aktif sejenis dalam 300 m dari pusat.
+    rows = conn.execute(
+        "SELECT * FROM reports WHERE incident_type = ? AND expires_at > ? ORDER BY created_at DESC",
+        (hazard["incident_type"], now_iso),
+    ).fetchall()
+    return [r for r in rows if haversine_m(hazard["lat"], hazard["lon"], r["lat"], r["lon"]) <= 300]
+
+
+def refresh_hazard(conn, hazard) -> dict:
+    """Peluruhan saat dibaca: hitung ulang skor/status dari anggota yang belum kedaluwarsa."""
+    members = hazard_members(conn, hazard, active_only=True)
+    if members:
+        score = cluster_score(members)
+        severity = max(r["severity"] for r in members)
+    else:
+        score, severity = 0.0, hazard["severity"]
+    status = status_for_score(score)
+    count = len(members)
+    if (score, status, count, severity) != (
+        hazard["confidence_score"], hazard["status"], hazard["report_count"], hazard["severity"]
+    ):
+        conn.execute(
+            "UPDATE hazards SET confidence_score = ?, severity = ?, status = ?, report_count = ? WHERE id = ?",
+            (score, severity, status, count, hazard["id"]),
+        )
+    fresh = dict(hazard)
+    fresh.update(
+        confidence_score=score,
+        severity=severity,
+        status=status,
+        report_count=count,
+        last_report_at=members[0]["created_at"] if members else None,
+    )
+    return fresh
+
+
+def refresh_active_hazards(conn) -> List[dict]:
+    """Segarkan semua TitikRawan Aktif/Mereda; kembalikan yang masih Aktif/Mereda."""
+    rows = conn.execute("SELECT * FROM hazards WHERE status IN ('Aktif', 'Mereda')").fetchall()
+    fresh = [refresh_hazard(conn, h) for h in rows]
+    return [h for h in fresh if h["status"] in ("Aktif", "Mereda")]
 
 
 def _publish_events(events: List[Tuple[str, dict]]) -> None:
@@ -188,7 +260,16 @@ def init_monitoring_db():
                 weather_factor REAL NOT NULL,
                 recorded_at TEXT NOT NULL
             );
+            -- Jumlah laporan per pengguna; tetap ada walau reporter_id laporan dianonimkan setelah kedaluwarsa.
+            CREATE TABLE IF NOT EXISTS reporter_stats (
+                user_id INTEGER PRIMARY KEY,
+                total INTEGER NOT NULL
+            );
         """)
+        # Migrasi tanpa merusak data lama: tambah kolom keanggotaan hazard bila belum ada.
+        report_cols = {r[1] for r in conn.execute("PRAGMA table_info(reports)")}
+        if "hazard_id" not in report_cols:
+            conn.execute("ALTER TABLE reports ADD COLUMN hazard_id INTEGER")
 
         now = datetime.now(timezone.utc)
 
@@ -266,6 +347,23 @@ def init_monitoring_db():
                 row = conn.execute("SELECT * FROM reports WHERE id = ?", (cur.lastrowid,)).fetchone()
                 sync_hazard_from_report(conn, row)
 
+        # Isi awal reporter_stats dari laporan yang pelapornya masih tercatat.
+        if conn.execute("SELECT COUNT(*) FROM reporter_stats").fetchone()[0] == 0:
+            conn.execute(
+                """
+                INSERT INTO reporter_stats (user_id, total)
+                SELECT reporter_id, COUNT(*) FROM reports WHERE reporter_id IS NOT NULL GROUP BY reporter_id
+                """
+            )
+
+
+def user_activity_counts(user_id: int) -> dict:
+    """Statistik aktivitas pengguna untuk /api/me."""
+    with get_db() as conn:
+        row = conn.execute("SELECT total FROM reporter_stats WHERE user_id = ?", (user_id,)).fetchone()
+        votes = conn.execute("SELECT COUNT(*) FROM report_votes WHERE user_id = ?", (user_id,)).fetchone()[0]
+    return {"reports": row["total"] if row else 0, "votes": votes}
+
 
 class ReportCreateReq(BaseModel):
     incident_type: Literal["genangan", "banjir", "macet_parah", "jalan_rusak", "kecelakaan"]
@@ -302,15 +400,25 @@ def parse_bbox(bbox: Optional[str]):
 
 
 @router.get("/reports", summary="Daftar laporan kondisi jalan aktif")
-def list_reports(bbox: Optional[str] = Query(None, description="min_lon,min_lat,max_lon,max_lat"), user: dict = Depends(get_current_user)):
+def list_reports(
+    bbox: Optional[str] = Query(None, description="min_lon,min_lat,max_lon,max_lat"),
+    mine: bool = Query(False, description="true = hanya laporan aktif milik pengguna login"),
+    user: dict = Depends(get_current_user),
+):
     box = parse_bbox(bbox)
     now_iso = datetime.now(timezone.utc).isoformat()
     with get_db() as conn:
         anonymize_expired_reports(conn)
-        rows = conn.execute(
-            "SELECT * FROM reports WHERE expires_at > ? ORDER BY id DESC LIMIT 100",
-            (now_iso,),
-        ).fetchall()
+        if mine:
+            rows = conn.execute(
+                "SELECT * FROM reports WHERE expires_at > ? AND reporter_id = ? ORDER BY id DESC LIMIT 100",
+                (now_iso, user["user_id"]),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM reports WHERE expires_at > ? ORDER BY id DESC LIMIT 100",
+                (now_iso,),
+            ).fetchall()
         votes_rows = conn.execute("SELECT report_id, user_id, vote_type FROM report_votes").fetchall()
 
     vote_counts = {}
@@ -344,6 +452,7 @@ def list_reports(bbox: Optional[str] = Query(None, description="min_lon,min_lat,
             "my_vote": my_votes.get(r["id"]),
             "created_at": r["created_at"],
             "expires_at": r["expires_at"],
+            "hazard_id": r["hazard_id"],
         })
     return {"total": len(result), "items": result}
 
@@ -383,8 +492,16 @@ def create_report(body: ReportCreateReq, user: dict = Depends(get_current_user))
                 (now + timedelta(hours=3)).isoformat(),
             ),
         )
+        conn.execute(
+            """
+            INSERT INTO reporter_stats (user_id, total) VALUES (?, 1)
+            ON CONFLICT(user_id) DO UPDATE SET total = total + 1
+            """,
+            (user["user_id"],),
+        )
         row = conn.execute("SELECT * FROM reports WHERE id = ?", (cur.lastrowid,)).fetchone()
         events = sync_hazard_from_report(conn, row)
+        hazard_id = conn.execute("SELECT hazard_id FROM reports WHERE id = ?", (row["id"],)).fetchone()[0]
 
     _publish_events(events)
     return {
@@ -393,6 +510,7 @@ def create_report(body: ReportCreateReq, user: dict = Depends(get_current_user))
         "severity": row["severity"],
         "confidence_score": init_score,
         "expires_at": row["expires_at"],
+        "hazard_id": hazard_id,
     }
 
 
@@ -442,34 +560,98 @@ def list_hazards(
 ):
     box = parse_bbox(bbox)
     with get_db() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, incident_type, severity, lat, lon, confidence_score, status, report_count, updated_at
-            FROM hazards
-            WHERE status IN ('Aktif', 'Mereda')
-            ORDER BY confidence_score DESC, updated_at DESC
-            """
-        ).fetchall()
+        rows = refresh_active_hazards(conn)
+    rows.sort(key=lambda h: h["updated_at"], reverse=True)
+    rows.sort(key=lambda h: h["confidence_score"], reverse=True)
+    keys = ("id", "incident_type", "severity", "lat", "lon", "confidence_score", "status", "report_count", "updated_at", "last_report_at")
     items = []
     for r in rows:
         if box and not (box[0] <= r["lon"] <= box[2] and box[1] <= r["lat"] <= box[3]):
             continue
-        items.append(dict(r))
+        items.append({k: r[k] for k in keys})
     return {"city": "Bandung", "total": len(items), "hazards": items}
 
 
-def _build_bandung_summary():
-    now_iso = datetime.now(timezone.utc).isoformat()
+@router.get("/hazards/{hazard_id}", summary="Detail titik rawan + laporan anggota (JWT opsional untuk is_mine/my_vote)")
+def hazard_detail(hazard_id: int, user: Optional[dict] = Depends(get_optional_user)):
     with get_db() as conn:
+        anonymize_expired_reports(conn)
+        hazard = conn.execute("SELECT * FROM hazards WHERE id = ?", (hazard_id,)).fetchone()
+        if not hazard:
+            raise HTTPException(status_code=404, detail="Titik rawan tidak ditemukan")
+        fresh = refresh_hazard(conn, hazard)
+        members = hazard_members(conn, hazard, active_only=False)
+        ids = [m["id"] for m in members]
+        votes = (
+            conn.execute(
+                f"SELECT report_id, user_id, vote_type FROM report_votes WHERE report_id IN ({','.join('?' * len(ids))})",
+                ids,
+            ).fetchall()
+            if ids
+            else []
+        )
+        w = conn.execute("SELECT rain_mm, weather_factor, recorded_at FROM weather_factors ORDER BY id DESC LIMIT 1").fetchone()
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    uid = user["user_id"] if user else None
+    reports = []
+    for m in members:
+        mv = [v for v in votes if v["report_id"] == m["id"]]
+        reports.append({
+            "id": m["id"],
+            "source": m["source"],
+            "incident_type": m["incident_type"],
+            "severity": m["severity"],
+            "description": m["description"],
+            "confidence_score": compute_effective_score(m),
+            "confirmations": sum(1 for v in mv if v["vote_type"] == "confirmation"),
+            "disputes": sum(1 for v in mv if v["vote_type"] == "dispute"),
+            "is_mine": uid is not None and m["reporter_id"] == uid,
+            "my_vote": next((v["vote_type"] for v in mv if v["user_id"] == uid), None),
+            "active": m["expires_at"] > now_iso,
+            "created_at": m["created_at"],
+            "expires_at": m["expires_at"],
+        })
+    # Konfirmasi/bantahan ditujukan ke laporan aktif terbaru yang bukan milik pengguna.
+    target = next((r for r in reports if r["active"] and not r["is_mine"]), None)
+    keys = ("id", "incident_type", "severity", "lat", "lon", "confidence_score", "status", "report_count", "updated_at", "last_report_at")
+    return {
+        **{k: fresh[k] for k in keys},
+        "weather": dict(w) if w else None,
+        "reports": reports,
+        "target_report_id": target["id"] if target else None,
+    }
+
+
+WIB = timezone(timedelta(hours=7))
+
+
+def _build_bandung_summary():
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    start_today = now.astimezone(WIB).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
+    with get_db() as conn:
+        refresh_active_hazards(conn)
         active = conn.execute("SELECT COUNT(*) FROM hazards WHERE status = 'Aktif'").fetchone()[0]
         easing = conn.execute("SELECT COUNT(*) FROM hazards WHERE status = 'Mereda'").fetchone()[0]
         reports = conn.execute("SELECT COUNT(*) FROM reports WHERE expires_at > ?", (now_iso,)).fetchone()[0]
         w = conn.execute("SELECT rain_mm, weather_factor, recorded_at FROM weather_factors ORDER BY id DESC LIMIT 1").fetchone()
+        identified = conn.execute(
+            "SELECT COUNT(DISTINCT reporter_id) FROM reports WHERE source = 'citizen' AND created_at >= ? AND reporter_id IS NOT NULL",
+            (start_today,),
+        ).fetchone()[0]
+        anonymized = conn.execute(
+            "SELECT COUNT(*) FROM reports WHERE source = 'citizen' AND created_at >= ? AND reporter_id IS NULL",
+            (start_today,),
+        ).fetchone()[0]
     return {
         "city": "Bandung",
         "active_hazards": active,
         "easing_hazards": easing,
         "active_reports": reports,
+        # shortcut: laporan teranonimkan dihitung 1 pelapor per laporan (bisa sedikit lebih tinggi dari aslinya);
+        # ganti dengan tabel pelapor harian bila perlu angka persis.
+        "reporters_today": identified + anonymized,
         "weather": dict(w) if w else {"rain_mm": 0.0, "weather_factor": 0.0, "recorded_at": None},
         "updated_at": now_iso,
     }

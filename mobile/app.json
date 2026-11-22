@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Lululala",
+    "name": "LintasSiaga",
     "slug": "lululala",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,14 +9,14 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0F172A"
+      "backgroundColor": "#0C447C"
     },
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0F172A",
+        "backgroundColor": "#0C447C",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -24,6 +24,16 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "LintasSiaga memakai lokasimu untuk menandai laporan dan menampilkan titik rawan di sekitarmu."
+        }
+      ]
+    ]
   }
 }
