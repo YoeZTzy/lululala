@@ -21,9 +21,9 @@ const STATUS = {
   Mereda: { bg: colors.risiko.waspadaBg, titik: colors.risiko.waspada, teks: colors.risiko.waspadaTeks },
 };
 
-// Badge Status titik rawan: titik 7 + teks Bold 11.
+// Badge Status titik rawan: titik 7 + teks Bold 11. Status di luar desain (Selesai) memakai gaya Mereda.
 export function BadgeStatus({ status = 'Aktif' }) {
-  const s = STATUS[status] || STATUS.Aktif;
+  const s = STATUS[status] || STATUS.Mereda;
   return (
     <View style={[styles.status, { backgroundColor: s.bg }]}>
       <View style={[styles.titik, { backgroundColor: s.titik }]} />
